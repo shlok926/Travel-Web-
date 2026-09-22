@@ -1,4 +1,6 @@
+import path from 'node:path';
 import Fastify, { FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { EnvConfig, loadEnv } from './config/env.js';
 import { DatabaseService } from './infrastructure/database/index.js';
 import { RedisService } from './infrastructure/redis/index.js';
@@ -54,6 +56,13 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
   await app.register(errorHandlerPlugin);
+
+  // Register Static File Serving for Frontend UI
+  const frontendPath = path.resolve(process.cwd(), 'frontend');
+  await app.register(fastifyStatic, {
+    root: frontendPath,
+    prefix: '/',
+  });
 
   // Register API Routes under /api/v1
   await app.register(apiRoutes, {
