@@ -1,6 +1,6 @@
-# Wanderlust - Tours & Travels
+# Young - Tours & Travels
 
-Welcome to the Wanderlust Tours & Travels project!
+Welcome to the Young Tours & Travels project!
 
 This repository contains the frontend application for a premium tours and travel booking platform. It features a modern, responsive design built with HTML, CSS, and potentially React/Vite in the future.
 
