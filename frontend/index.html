@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wanderlust - Tours & Travels</title>
+    <meta name="description" content="Discover your next adventure with Wanderlust Tours & Travels. Premium experiences, unforgettable destinations.">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="logo">
+            <span>Wanderlust</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="#destinations">Destinations</a></li>
+            <li><a href="#packages">Packages</a></li>
+            <li><a href="#about">About Us</a></li>
+            <li><a href="#contact" class="btn-primary">Book Now</a></li>
+        </ul>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1>Discover the World's Best Secrets</h1>
+            <p>Curated premium travel experiences designed just for you.</p>
+            <div class="search-bar">
+                <input type="text" placeholder="Where do you want to go?" aria-label="Search destination">
+                <button class="btn-search">Explore</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Featured Destinations Section -->
+    <section id="destinations" class="section">
+        <div class="section-header">
+            <h2>Popular Destinations</h2>
+            <p>Handpicked locations for your next escape.</p>
+        </div>
+        
+        <div class="card-grid">
+            <!-- Destination Card 1 -->
+            <div class="card">
+                <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=600&q=80');"></div>
+                <div class="card-content">
+                    <h3>Paris, France</h3>
+                    <p>Experience the city of love and lights.</p>
+                    <a href="#" class="btn-secondary">View Details</a>
+                </div>
+            </div>
+
+            <!-- Destination Card 2 -->
+            <div class="card">
+                <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=600&q=80');"></div>
+                <div class="card-content">
+                    <h3>Dubai, UAE</h3>
+                    <p>Luxury meets futuristic architecture.</p>
+                    <a href="#" class="btn-secondary">View Details</a>
+                </div>
+            </div>
+
+            <!-- Destination Card 3 -->
+            <div class="card">
+                <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?auto=format&fit=crop&w=600&q=80');"></div>
+                <div class="card-content">
+                    <h3>Venice, Italy</h3>
+                    <p>Romantic canals and historic charm.</p>
+                    <a href="#" class="btn-secondary">View Details</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2026 Wanderlust Tours & Travels. All rights reserved.</p>
+    </footer>
+
+    <script>
+        // Simple scroll effect for navbar
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('.navbar');
+            if (window.scrollY > 50) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+        });
+    </script>
+</body>
+</html>
