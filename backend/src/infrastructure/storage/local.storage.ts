@@ -24,7 +24,11 @@ export class LocalStorageService implements IStorageService {
     return fs.readFile(fullPath);
   }
 
-  async getDownloadUrl(bucket: string, key: string, _expiresInSeconds: number = 900): Promise<string> {
+  async getDownloadUrl(
+    bucket: string,
+    key: string,
+    _expiresInSeconds: number = 900,
+  ): Promise<string> {
     // Return relative or local route path for local development
     return `/api/v1/storage/${bucket}/${key}`;
   }
