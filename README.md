@@ -18,7 +18,7 @@ The platform is designed as a **Modular Monolith** adhering to the frozen Phase 
 * **Backend API:** Fastify with TypeScript providing schema-validated (AJV) REST APIs, short-lived JWT authentication, and structured Pino logging.
 * **Persistence Tier:** PostgreSQL 15+ enforcing strict ACID transactions, row-level pessimistic locking (`SELECT ... FOR UPDATE`) for seat quotas, and native `JSONB` for immutable package snapshots.
 * **Asynchronous Worker:** BullMQ on Redis executing background PDF generation (Headless Chrome), transactional emails, and the 15-minute temporary reservation hold sweeper.
-* **Security Baseline:** Argon2id password hashing, RS256/HS256 JWT tokens, Helmet security headers, rate limiting, and strict PCI-DSS cardholder data isolation.
+* **Security Baseline:** Argon2id password hashing, RS256 asymmetric JWT keypairs, Helmet security headers, rate limiting, and strict PCI-DSS cardholder data isolation.
 
 ---
 

@@ -70,7 +70,7 @@ Travel-Web-/
 │       │   └── money.ts                # Integer Minor Units Money Arithmetic (INR/USD)
 │       ├── security/
 │       │   ├── argon2.ts               # Argon2id Password Hashing & Verification
-│       │   └── jwt.ts                  # RS256 / HS256 Token Signing & Verification
+│       │   └── jwt.ts                  # RS256 Asymmetric Token Signing & Verification (Zero HS256)
 │       └── index.ts                    # Shared Module Barrel Export
 ├── frontend/
 │   ├── src/

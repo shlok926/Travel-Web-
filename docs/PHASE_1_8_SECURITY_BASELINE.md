@@ -22,18 +22,18 @@
 
 ## 2. Security Baseline Verification Checklist
 
-| Security Control       | Implementation Location               | Verified Status                   | Verification Evidence                                                           |
-| ---------------------- | ------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------- |
-| **Password Hashing**   | `shared/src/security/argon2.ts`       | **VERIFIED (Argon2id)**           | Argon2id enforced (memoryCost: 64MB, timeCost: 3, parallelism: 4). Zero bcrypt. |
-| **JWT Algorithm**      | `shared/src/security/jwt.ts`          | **VERIFIED (RS256/HS256)**        | Asymmetric RS256 standard with keypair support and HS256 dev fallback.          |
-| **Monetary Precision** | `shared/src/utils/money.ts`           | **VERIFIED (Minor Units)**        | Integer minor units (paise/cents). Zero floating point math.                    |
-| **Security Headers**   | `backend/src/plugins/security.ts`     | **VERIFIED (Helmet)**             | HSTS, CSP, X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN.        |
-| **CORS Policy**        | `backend/src/plugins/security.ts`     | **VERIFIED (Strict Origin)**      | Explicit origin validation based on `CORS_ORIGIN`.                              |
-| **Rate Limiting**      | `backend/src/plugins/security.ts`     | **VERIFIED (Fastify Rate Limit)** | 120 req/min with standard 429 JSON error envelope.                              |
-| **Cookie Security**    | `backend/src/plugins/security.ts`     | **VERIFIED (@fastify/cookie)**    | `HttpOnly`, `SameSite=Strict`, `Secure` in production.                          |
-| **Log Sanitization**   | `backend/src/app.ts`                  | **VERIFIED (Pino Redact)**        | Automatic redaction of passwords, tokens, cookies, and card numbers.            |
-| **Error Leakage**      | `backend/src/plugins/errorHandler.ts` | **VERIFIED (RFC 7807)**           | Stack traces stripped; consistent JSON error envelopes.                         |
-| **Storage Isolation**  | `backend/src/infrastructure/storage/` | **VERIFIED (Private Storage)**    | Pre-signed URLs for private document access.                                    |
+| Security Control       | Implementation Location               | Verified Status                              | Verification Evidence                                                                                                       |
+| ---------------------- | ------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Password Hashing**   | `shared/src/security/argon2.ts`       | **VERIFIED (Argon2id)**                      | Argon2id enforced (memoryCost: 64MB, timeCost: 3, parallelism: 4). Zero bcrypt.                                             |
+| **JWT Algorithm**      | `shared/src/security/jwt.ts`          | **VERIFIED (RS256 Only)**                    | Asymmetric RS256 standard across all tiers. Zero HS256 fallback; algorithm confusion & downgrade strictly rejected.         |
+| **Monetary Precision** | `shared/src/utils/money.ts`           | **VERIFIED (Minor Units)**                   | Integer minor units (paise/cents). Zero floating point math.                                                                |
+| **Security Headers**   | `backend/src/plugins/security.ts`     | **VERIFIED (Helmet)**                        | HSTS, CSP, X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN.                                                    |
+| **CORS Policy**        | `backend/src/plugins/security.ts`     | **VERIFIED (Strict Origin)**                 | Explicit origin validation based on `CORS_ORIGIN`.                                                                          |
+| **Rate Limiting**      | `backend/src/plugins/security.ts`     | **VERIFIED (Fastify Rate Limit)**            | 120 req/min with standard 429 JSON error envelope.                                                                          |
+| **Cookie Security**    | `backend/src/plugins/security.ts`     | **VERIFIED (@fastify/cookie)**               | `HttpOnly`, `SameSite=Strict`, `Secure` in production, signed with `COOKIE_SECRET`.                                         |
+| **Log Sanitization**   | `backend/src/app.ts`                  | **VERIFIED (Pino Redact)**                   | Automatic redaction of passwords, tokens, cookies, and card numbers.                                                        |
+| **Error Leakage**      | `backend/src/plugins/errorHandler.ts` | **VERIFIED (Phase 0.4 / RFC 7807)**          | Stack traces stripped; consistent canonical error envelopes.                                                                |
+| **Storage Isolation**  | `backend/src/infrastructure/storage/` | **VERIFIED (Private Storage \u0026 Guards)** | Pre-signed URLs for private documents; local storage path traversal \u0026 size guards; production local driver prohibited. |
 
 ---
 

@@ -72,11 +72,12 @@
 
 ## 3. Concrete Security & Data Resolutions
 
-| Decision Domain             | Concrete Resolution     | Technical Justification & Implementation Standard                                                                                                                                               |
-| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Password Hashing**        | **Argon2id**            | Enforce Argon2id via `argon2` npm library. Zero bcrypt. Minimum memory cost: 64MB, time cost: 3 iterations, parallelism: 4 (`NFR-SEC-002`).                                                     |
-| **JWT Signing Algorithm**   | **RS256 (Asymmetric)**  | Standardize on **RS256** (RSA Signature with SHA-256) utilizing private/public key pairs. HS256 supported as configurable fallback for local development (`ADR-005`).                           |
-| **Monetary Representation** | **Integer Minor Units** | All monetary values are represented as **Integer Minor Units** (e.g. `4500000` paise = ₹45,000.00 INR, `25000` cents = $250.00 USD). Float arithmetic is strictly prohibited in business logic. |
+| Decision Domain             | Concrete Resolution     | Technical Justification & Implementation Standard                                                                                                                                                                  |
+| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Password Hashing**        | **Argon2id**            | Enforce Argon2id via `argon2` npm library. Zero bcrypt. Minimum memory cost: 64MB, time cost: 3 iterations, parallelism: 4 (`NFR-SEC-002`).                                                                        |
+| **JWT Signing Algorithm**   | **RS256 Only**          | Strictly enforce **RS256** (RSA Signature with SHA-256) across all environments (dev, test, staging, production) utilizing 2048-bit RSA keypairs. Zero HS256 fallback; algorithm downgrade prohibited (`ADR-005`). |
+| **Monetary Representation** | **Integer Minor Units** | All monetary values are represented as **Integer Minor Units** (e.g. `4500000` paise = ₹45,000.00 INR, `25000` cents = $250.00 USD). Float arithmetic is strictly prohibited in business logic.                    |
+| **Storage Safety Guard**    | **S3 Production Guard** | Local filesystem storage (`LocalStorageService`) is restricted to offline dev/test only. In `NODE_ENV=production`, `STORAGE_DRIVER=local` triggers immediate startup termination.                                  |
 
 ---
 

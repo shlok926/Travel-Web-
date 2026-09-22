@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createApp } from '../../backend/src/app.js';
 import { FastifyInstance } from 'fastify';
 import { loadEnv } from '../../backend/src/config/env.js';
+import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
+import { RedisService } from '../../backend/src/infrastructure/redis/index.js';
 
 describe('API Foundation — Health & Readiness Endpoints', () => {
   let app: FastifyInstance;
@@ -11,19 +13,18 @@ describe('API Foundation — Health & Readiness Endpoints', () => {
       NODE_ENV: 'test',
       PORT: '4001',
       DATABASE_URL: 'postgresql://mock:mock@localhost:5432/mock_db',
-      JWT_SECRET_KEY: 'test_jwt_secret_key_minimum_32_characters_long_123',
     });
 
     // Mock DB & Redis for isolated integration test
     const mockDb = {
       checkHealth: async () => ({ status: 'healthy' as const, latencyMs: 2 }),
       close: async () => {},
-    } as any;
+    } as unknown as DatabaseService;
 
     const mockRedis = {
       checkHealth: async () => ({ status: 'healthy' as const, latencyMs: 1 }),
       close: async () => {},
-    } as any;
+    } as unknown as RedisService;
 
     const created = await createApp({ config, db: mockDb, redis: mockRedis });
     app = created.app;
@@ -34,7 +35,7 @@ describe('API Foundation — Health & Readiness Endpoints', () => {
     await app.close();
   });
 
-  it('GET /api/v1/health should return 200 OK with liveness status', async () => {
+  it('GET /api/v1/health should return 200 OK with process liveness status', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/v1/health',
@@ -48,7 +49,7 @@ describe('API Foundation — Health & Readiness Endpoints', () => {
     expect(body.meta.timestamp).toBeDefined();
   });
 
-  it('GET /api/v1/ready should return 200 OK when dependencies report healthy', async () => {
+  it('GET /api/v1/ready should return 200 OK with "ready" status when all dependencies are healthy', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/v1/ready',

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **Database Infrastructure:** PostgreSQL 15 connection pool (`pg.Pool`), query runner, and transaction boundary utilities (`withTransaction()`).
 * **Redis Infrastructure:** Singleton `ioredis` client with fault-tolerant reconnect handling and decoupled health diagnostics.
 * **Object Storage Abstraction:** Abstract `IStorageService` interface with `LocalStorageService` and `S3StorageService` adapters.
-* **Security Modules:** Argon2id password hashing (`PasswordSecurity`), RS256/HS256 JWT signing/verification (`JwtSecurity`), Helmet, CORS, and rate limiting.
+* **Security Modules:** Argon2id password hashing (`PasswordSecurity`), RS256-only asymmetric JWT signing/verification (`JwtSecurity`), Helmet, CORS, and rate limiting.
 * **Monetary Engine:** `MoneyUtil` utility operating exclusively on integer minor units (paise/cents) with zero floating-point arithmetic.
 * **Modular Frontend Client:** Refactored ES6 client (`frontend/src/`) with typed `ApiClient` and component controllers, preserving 100% of the landing page prototype's visual styling.
 * **Containerization:** `docker-compose.yml` orchestrating PostgreSQL 15, Redis 7, MinIO S3 storage, Backend API, and Worker containers.

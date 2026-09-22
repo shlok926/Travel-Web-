@@ -71,7 +71,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       STORAGE_DRIVER: local
-      JWT_SECRET_KEY: super_secure_dev_jwt_secret_key_minimum_32_characters_long_12345
+      COOKIE_SECRET: super_secure_dev_cookie_signing_secret_minimum_32_characters_12345
     ports:
       - "3000:3000"
     depends_on:
