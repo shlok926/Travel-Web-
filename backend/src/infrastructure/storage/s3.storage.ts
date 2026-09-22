@@ -13,8 +13,13 @@ export class S3StorageService implements IStorageService {
     return Buffer.from('');
   }
 
-  async getDownloadUrl(bucket: string, key: string, _expiresInSeconds: number = 900): Promise<string> {
-    const endpoint = this.config.S3_ENDPOINT || `https://${bucket}.s3.${this.config.S3_REGION}.amazonaws.com`;
+  async getDownloadUrl(
+    bucket: string,
+    key: string,
+    _expiresInSeconds: number = 900,
+  ): Promise<string> {
+    const endpoint =
+      this.config.S3_ENDPOINT || `https://${bucket}.s3.${this.config.S3_REGION}.amazonaws.com`;
     return `${endpoint}/${key}?signed=true`;
   }
 
