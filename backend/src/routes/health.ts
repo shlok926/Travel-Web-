@@ -16,7 +16,8 @@ export const healthRoutes: FastifyPluginAsync<HealthRouteOptions> = async (
   const startTime = Date.now();
 
   /**
-   * Liveness Probe: Verifies HTTP server event loop is responsive.
+   * Liveness Probe: Verifies HTTP server process event loop is alive.
+   * Returns 200 OK unconditionally as long as the server process is responsive.
    */
   fastify.get('/health', async (request, reply) => {
     const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -42,19 +43,46 @@ export const healthRoutes: FastifyPluginAsync<HealthRouteOptions> = async (
   });
 
   /**
-   * Readiness Probe: Verifies database and Redis connection readiness.
+   * Readiness Probe: Verifies availability of underlying infrastructure dependencies.
+   *
+   * Exact Readiness Semantics:
+   * 1. DB (Healthy) + Redis (Healthy)   -> 200 OK, status: 'ready'
+   * 2. DB (Healthy) + Redis (Unhealthy) -> 200 OK, status: 'degraded' (DB is authoritative transactional store;
+   *                                        system operates with synchronous fallback)
+   * 3. DB (Unhealthy) + Redis (Healthy) -> 503 Service Unavailable, status: 'unhealthy' (Authoritative transactional
+   *                                        data store offline; cannot guarantee booking ACID integrity)
+   * 4. DB (Unhealthy) + Redis (Unhealthy)-> 503 Service Unavailable, status: 'unhealthy'
    */
   fastify.get('/ready', async (request, reply) => {
     const [dbHealth, redisHealth] = await Promise.all([db.checkHealth(), redis.checkHealth()]);
 
-    const isHealthy = dbHealth.status === 'healthy'; // In dev without Redis, DB is primary authority
+    const isDbHealthy = dbHealth.status === 'healthy';
+    const isRedisHealthy = redisHealth.status === 'healthy';
 
-    const statusCode = isHealthy ? 200 : 503;
+    let statusCode = 200;
+    let overallStatus: 'ready' | 'degraded' | 'unhealthy' = 'ready';
+    let isSuccess = true;
+
+    if (!isDbHealthy) {
+      // Database failure is fatal for transactional readiness
+      statusCode = 503;
+      overallStatus = 'unhealthy';
+      isSuccess = false;
+    } else if (!isRedisHealthy) {
+      // Redis outage leaves DB active: degraded mode with sync fallbacks
+      statusCode = 200;
+      overallStatus = 'degraded';
+      isSuccess = true;
+    } else {
+      statusCode = 200;
+      overallStatus = 'ready';
+      isSuccess = true;
+    }
 
     const response = {
-      success: isHealthy,
+      success: isSuccess,
       data: {
-        status: isHealthy ? 'ready' : 'degraded',
+        status: overallStatus,
         checks: {
           database: dbHealth,
           redis: redisHealth,

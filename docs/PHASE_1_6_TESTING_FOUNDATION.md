@@ -50,16 +50,16 @@ Test Files  8 passed (8)
   Duration  1.28s
 ```
 
-| Test Suite                         | Tests | Result   | Verification Notes                                                                          |
-| ---------------------------------- | ----- | -------- | ------------------------------------------------------------------------------------------- |
-| `tests/unit/config.test.ts`        | 2     | **PASS** | Validates default configurations and rejects invalid JWT secret lengths.                    |
-| `tests/unit/money.test.ts`         | 6     | **PASS** | Verifies decimal-to-minor conversions, additions, GST percentage math, and currency safety. |
-| `tests/unit/security.test.ts`      | 2     | **PASS** | Verifies Argon2id password hashing and HS256/RS256 JWT signing/verification.                |
-| `tests/unit/storage.test.ts`       | 1     | **PASS** | Verifies LocalStorageService upload, download, check, and deletion.                         |
-| `tests/integration/health.test.ts` | 2     | **PASS** | Verifies Fastify `/api/v1/health` and `/api/v1/ready` probes via `app.inject()`.            |
-| `tests/integration/errors.test.ts` | 2     | **PASS** | Verifies standardized RFC 7807 error envelopes and Helmet security headers.                 |
-| `tests/resilience/failure.test.ts` | 2     | **PASS** | Verifies 503 degraded status on DB outage while liveness `/health` remains responsive.      |
-| `tests/worker/smoke.test.ts`       | 2     | **PASS** | Verifies BullMQ smoke queue definition and worker concurrency initialization.               |
+| Test Suite                         | Tests | Result   | Verification Notes                                                                                                                |
+| ---------------------------------- | ----- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/unit/config.test.ts`        | 4     | **PASS** | Validates default configurations, COOKIE_SECRET length, and production storage safety guard.                                      |
+| `tests/unit/money.test.ts`         | 6     | **PASS** | Verifies decimal-to-minor conversions, additions, GST percentage math, and currency safety.                                       |
+| `tests/unit/security.test.ts`      | 5     | **PASS** | Verifies Argon2id hashing, RS256 asymmetric signing, key mismatch rejection, HS256 rejection, and "none" alg downgrade rejection. |
+| `tests/unit/storage.test.ts`       | 4     | **PASS** | Verifies LocalStorageService CRUD, key generation, path traversal rejection, and file size limits.                                |
+| `tests/integration/health.test.ts` | 2     | **PASS** | Verifies Fastify `/api/v1/health` and `/api/v1/ready` probes via `app.inject()`.                                                  |
+| `tests/integration/errors.test.ts` | 2     | **PASS** | Verifies standardized Phase 0.4 error envelopes (mapped to RFC 7807) and Helmet security headers.                                 |
+| `tests/resilience/failure.test.ts` | 4     | **PASS** | Verifies 4-state readiness matrix (DB down=503, Redis down=200 degraded, both down=503) & liveness probe.                         |
+| `tests/worker/smoke.test.ts`       | 2     | **PASS** | Verifies BullMQ smoke queue definition and worker concurrency initialization.                                                     |
 
 ---
 

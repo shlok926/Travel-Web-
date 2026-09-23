@@ -58,7 +58,7 @@ const securityPluginAsync: FastifyPluginAsync<SecurityOptions> = async (
 
   // 4. Secure Cookie Management
   await fastify.register(cookie, {
-    secret: config.JWT_SECRET_KEY,
+    secret: config.COOKIE_SECRET,
     parseOptions: {
       httpOnly: true,
       sameSite: 'strict',
