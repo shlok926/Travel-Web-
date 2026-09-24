@@ -6,6 +6,8 @@ import { DatabaseService } from './infrastructure/database/index.js';
 import { RedisService } from './infrastructure/redis/index.js';
 import { StorageFactory, IStorageService } from './infrastructure/storage/index.js';
 import { UserRepository } from './modules/auth/repositories/user.repository.js';
+import { RefreshTokenRepository } from './modules/auth/repositories/refreshToken.repository.js';
+import { AuthService } from './modules/auth/services/auth.service.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -18,6 +20,8 @@ export interface AppDependencies {
   redis?: RedisService;
   storage?: IStorageService;
   userRepo?: UserRepository;
+  refreshTokenRepo?: RefreshTokenRepository;
+  authService?: AuthService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -25,6 +29,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   db: DatabaseService;
   redis: RedisService;
   storage: IStorageService;
+  authService: AuthService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -55,6 +60,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const redis = dependencies.redis ?? new RedisService(config);
   const storage = dependencies.storage ?? StorageFactory.create(config);
   const userRepo = dependencies.userRepo ?? new UserRepository(db);
+  const refreshTokenRepo = dependencies.refreshTokenRepo ?? new RefreshTokenRepository(db);
+  const authService =
+    dependencies.authService ?? new AuthService(db, userRepo, refreshTokenRepo, config);
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
@@ -75,7 +83,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     db,
     redis,
     storage,
+    authService,
+    config,
   });
 
-  return { app, db, redis, storage, config };
+  return { app, db, redis, storage, authService, config };
 }

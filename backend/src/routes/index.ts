@@ -1,13 +1,18 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { healthRoutes } from './health.js';
+import { authRoutes } from '../modules/auth/routes/auth.routes.js';
+import { AuthService } from '../modules/auth/services/auth.service.js';
 import { DatabaseService } from '../infrastructure/database/index.js';
 import { RedisService } from '../infrastructure/redis/index.js';
 import { IStorageService } from '../infrastructure/storage/index.js';
+import { EnvConfig } from '../config/env.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
   redis: RedisService;
   storage: IStorageService;
+  authService?: AuthService;
+  config?: EnvConfig;
 }
 
 export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
@@ -20,5 +25,12 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     redis: options.redis,
   });
 
-  // Future domain route modules (Auth, Packages, Bookings, Payments) will be registered here in Phase 2+
+  // Register Authentication Routes under /api/v1/auth
+  if (options.authService) {
+    await fastify.register(authRoutes, {
+      prefix: '/auth',
+      authService: options.authService,
+      config: options.config,
+    });
+  }
 };
