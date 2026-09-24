@@ -5,8 +5,10 @@ import { EnvConfig, loadEnv } from './config/env.js';
 import { DatabaseService } from './infrastructure/database/index.js';
 import { RedisService } from './infrastructure/redis/index.js';
 import { StorageFactory, IStorageService } from './infrastructure/storage/index.js';
+import { UserRepository } from './modules/auth/repositories/user.repository.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
+import { authPlugin } from './plugins/auth.js';
 import { errorHandlerPlugin } from './plugins/errorHandler.js';
 import { apiRoutes } from './routes/index.js';
 
@@ -15,6 +17,7 @@ export interface AppDependencies {
   db?: DatabaseService;
   redis?: RedisService;
   storage?: IStorageService;
+  userRepo?: UserRepository;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -51,10 +54,12 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const db = dependencies.db ?? new DatabaseService(config);
   const redis = dependencies.redis ?? new RedisService(config);
   const storage = dependencies.storage ?? StorageFactory.create(config);
+  const userRepo = dependencies.userRepo ?? new UserRepository(db);
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
+  await app.register(authPlugin, { userRepo, config });
   await app.register(errorHandlerPlugin);
 
   // Register Static File Serving for Frontend UI
