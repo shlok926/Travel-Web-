@@ -117,43 +117,60 @@ export class AuthService {
     });
 
     // 4. Atomically persist user and refresh token in transaction
-    return this.db.withTransaction(async (client) => {
-      // Default public registration role is strictly CUSTOMER
-      const createdUser = await this.userRepo.create(
-        {
-          email,
-          passwordHash,
-          fullName,
-          mobileContact: mobileContact || null,
-          role: 'CUSTOMER',
-          isActive: true,
-        },
-        client,
-      );
+    try {
+      return await this.db.withTransaction(async (client) => {
+        // Default public registration role is strictly CUSTOMER
+        const createdUser = await this.userRepo.create(
+          {
+            email,
+            passwordHash,
+            fullName,
+            mobileContact: mobileContact || null,
+            role: 'CUSTOMER',
+            isActive: true,
+          },
+          client,
+        );
 
-      // Generate refresh token pair
-      const { rawRefreshToken, tokenHash } = this.generateRefreshTokenPair();
-      const expiresAt = new Date(Date.now() + this.config.JWT_REFRESH_EXPIRES_IN * 1000);
+        // Generate refresh token pair
+        const { rawRefreshToken, tokenHash } = this.generateRefreshTokenPair();
+        const expiresAt = new Date(Date.now() + this.config.JWT_REFRESH_EXPIRES_IN * 1000);
 
-      // Persist ONLY the SHA-256 token hash
-      await this.refreshTokenRepo.create(
-        {
-          userId: createdUser.id,
-          tokenHash,
-          expiresAt,
-        },
-        client,
-      );
+        // Persist ONLY the SHA-256 token hash
+        await this.refreshTokenRepo.create(
+          {
+            userId: createdUser.id,
+            tokenHash,
+            expiresAt,
+          },
+          client,
+        );
 
-      // Generate RS256 access token
-      const accessToken = this.generateAccessToken(createdUser);
+        // Generate RS256 access token
+        const accessToken = this.generateAccessToken(createdUser);
 
-      return {
-        user: toUserDto(createdUser),
-        accessToken,
-        rawRefreshToken,
-      };
-    });
+        return {
+          user: toUserDto(createdUser),
+          accessToken,
+          rawRefreshToken,
+        };
+      });
+    } catch (err: unknown) {
+      if (err instanceof AppError) throw err;
+      const pgErr = err as { code?: string; message?: string };
+      if (
+        pgErr?.code === '23505' ||
+        pgErr?.message?.includes('duplicate key') ||
+        pgErr?.message?.includes('unique constraint')
+      ) {
+        throw new AppError(
+          'An account with this email address already exists.',
+          409,
+          ErrorCodes.CONFLICT,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
