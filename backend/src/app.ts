@@ -8,6 +8,15 @@ import { StorageFactory, IStorageService } from './infrastructure/storage/index.
 import { UserRepository } from './modules/auth/repositories/user.repository.js';
 import { RefreshTokenRepository } from './modules/auth/repositories/refreshToken.repository.js';
 import { AuthService } from './modules/auth/services/auth.service.js';
+import {
+  DestinationRepository,
+  ThemeRepository,
+  TourPackageRepository,
+  ItineraryRepository,
+  DestinationService,
+  ThemeService,
+  TourPackageService,
+} from './modules/catalogue/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -22,6 +31,13 @@ export interface AppDependencies {
   userRepo?: UserRepository;
   refreshTokenRepo?: RefreshTokenRepository;
   authService?: AuthService;
+  destinationRepo?: DestinationRepository;
+  themeRepo?: ThemeRepository;
+  tourPackageRepo?: TourPackageRepository;
+  itineraryRepo?: ItineraryRepository;
+  destinationService?: DestinationService;
+  themeService?: ThemeService;
+  tourPackageService?: TourPackageService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -30,6 +46,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   redis: RedisService;
   storage: IStorageService;
   authService: AuthService;
+  destinationService: DestinationService;
+  themeService: ThemeService;
+  tourPackageService: TourPackageService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -64,6 +83,19 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const authService =
     dependencies.authService ?? new AuthService(db, userRepo, refreshTokenRepo, config);
 
+  // Instantiate Catalogue Layer
+  const destinationRepo = dependencies.destinationRepo ?? new DestinationRepository(db);
+  const themeRepo = dependencies.themeRepo ?? new ThemeRepository(db);
+  const tourPackageRepo = dependencies.tourPackageRepo ?? new TourPackageRepository(db);
+  const itineraryRepo = dependencies.itineraryRepo ?? new ItineraryRepository(db);
+
+  const destinationService =
+    dependencies.destinationService ?? new DestinationService(destinationRepo, tourPackageRepo);
+  const themeService = dependencies.themeService ?? new ThemeService(themeRepo);
+  const tourPackageService =
+    dependencies.tourPackageService ??
+    new TourPackageService(tourPackageRepo, destinationRepo, themeRepo, itineraryRepo, db);
+
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
@@ -84,8 +116,21 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     redis,
     storage,
     authService,
+    destinationService,
+    themeService,
+    tourPackageService,
     config,
   });
 
-  return { app, db, redis, storage, authService, config };
+  return {
+    app,
+    db,
+    redis,
+    storage,
+    authService,
+    destinationService,
+    themeService,
+    tourPackageService,
+    config,
+  };
 }

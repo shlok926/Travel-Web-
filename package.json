@@ -20,7 +20,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "db:migrate": "tsx backend/src/infrastructure/database/migrator.ts",
-    "db:seed": "tsx backend/src/infrastructure/database/seeds/seedAdmin.ts"
+    "db:seed": "tsx backend/src/infrastructure/database/seeds/seedAll.ts",
+    "db:seed:admin": "tsx backend/src/infrastructure/database/seeds/seedAdmin.ts",
+    "db:seed:catalogue": "tsx backend/src/infrastructure/database/seeds/seedCatalogue.ts",
+    "seed": "tsx backend/src/infrastructure/database/seeds/seedAll.ts"
   },
   "keywords": [
     "tours-and-travels",

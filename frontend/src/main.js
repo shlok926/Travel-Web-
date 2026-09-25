@@ -1,11 +1,13 @@
 import { NavbarComponent } from './components/navbar.js';
 import { AuthModal } from './components/authModal.js';
+import { CatalogueSection } from './components/catalogueSection.js';
 import { api } from './api/client.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize UI Components
   AuthModal.init();
   NavbarComponent.init();
+  CatalogueSection.init();
 
   // Non-blocking background session restoration via HttpOnly cookie
   try {

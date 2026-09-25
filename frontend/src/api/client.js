@@ -173,6 +173,42 @@ export class ApiClient {
   async checkHealth() {
     return this.get('/health', { skipAuth: true });
   }
+
+  // --- Public Catalogue API ---
+
+  async getDestinations(params = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.isFeatured !== undefined) query.set('isFeatured', String(params.isFeatured));
+    const qs = query.toString();
+    return this.get(`/destinations${qs ? `?${qs}` : ''}`, { skipAuth: true });
+  }
+
+  async getDestinationBySlug(slug) {
+    if (!slug) throw new Error('Destination slug is required');
+    return this.get(`/destinations/${encodeURIComponent(slug)}`, { skipAuth: true });
+  }
+
+  async getThemes() {
+    return this.get('/themes', { skipAuth: true });
+  }
+
+  async getPackages(params = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.destinationSlug) query.set('destinationSlug', String(params.destinationSlug));
+    if (params.themeSlug) query.set('themeSlug', String(params.themeSlug));
+    if (params.isFeatured !== undefined) query.set('isFeatured', String(params.isFeatured));
+    const qs = query.toString();
+    return this.get(`/packages${qs ? `?${qs}` : ''}`, { skipAuth: true });
+  }
+
+  async getPackageBySlug(slug) {
+    if (!slug) throw new Error('Package slug is required');
+    return this.get(`/packages/${encodeURIComponent(slug)}`, { skipAuth: true });
+  }
 }
 
 export const api = new ApiClient();
