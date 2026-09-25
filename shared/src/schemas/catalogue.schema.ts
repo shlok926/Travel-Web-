@@ -48,11 +48,13 @@ export const createDestinationSchema = z
   })
   .strict();
 
-export type CreateDestinationInput = z.infer<typeof createDestinationSchema>;
+export type CreateDestinationInput = z.input<typeof createDestinationSchema>;
+export type CreateDestinationDto = CreateDestinationInput;
 
 export const updateDestinationSchema = createDestinationSchema.partial().strict();
 
-export type UpdateDestinationInput = z.infer<typeof updateDestinationSchema>;
+export type UpdateDestinationInput = z.input<typeof updateDestinationSchema>;
+export type UpdateDestinationDto = UpdateDestinationInput;
 
 export const destinationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -96,11 +98,13 @@ export const createThemeSchema = z
   })
   .strict();
 
-export type CreateThemeInput = z.infer<typeof createThemeSchema>;
+export type CreateThemeInput = z.input<typeof createThemeSchema>;
+export type CreateThemeDto = CreateThemeInput;
 
 export const updateThemeSchema = createThemeSchema.partial().strict();
 
-export type UpdateThemeInput = z.infer<typeof updateThemeSchema>;
+export type UpdateThemeInput = z.input<typeof updateThemeSchema>;
+export type UpdateThemeDto = UpdateThemeInput;
 
 // --- 3. Itinerary Day Schemas ---
 
@@ -128,7 +132,7 @@ export const itineraryDayInputSchema = z
   })
   .strict();
 
-export type ItineraryDayInput = z.infer<typeof itineraryDayInputSchema>;
+export type ItineraryDayInput = z.input<typeof itineraryDayInputSchema>;
 
 export const upsertPackageItinerarySchema = z
   .object({
@@ -138,7 +142,7 @@ export const upsertPackageItinerarySchema = z
   })
   .strict();
 
-export type UpsertPackageItineraryInput = z.infer<typeof upsertPackageItinerarySchema>;
+export type UpsertPackageItineraryInput = z.input<typeof upsertPackageItinerarySchema>;
 
 // --- 4. Tour Package Schemas ---
 
@@ -249,11 +253,13 @@ export const createTourPackageSchema = z
   })
   .strict();
 
-export type CreateTourPackageInput = z.infer<typeof createTourPackageSchema>;
+export type CreateTourPackageInput = z.input<typeof createTourPackageSchema>;
+export type CreateTourPackageDto = CreateTourPackageInput;
 
 export const updateTourPackageSchema = createTourPackageSchema.partial().strict();
 
-export type UpdateTourPackageInput = z.infer<typeof updateTourPackageSchema>;
+export type UpdateTourPackageInput = z.input<typeof updateTourPackageSchema>;
+export type UpdateTourPackageDto = UpdateTourPackageInput;
 
 export const tourPackageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -270,4 +276,4 @@ export const tourPackageQuerySchema = z.object({
     .optional(),
 });
 
-export type TourPackageQueryInput = z.infer<typeof tourPackageQuerySchema>;
+export type TourPackageQueryInput = z.input<typeof tourPackageQuerySchema>;
