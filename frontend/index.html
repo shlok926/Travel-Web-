@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap"
       rel="stylesheet"
     />
   </head>
@@ -22,7 +22,7 @@
     <!-- Navbar -->
     <nav class="navbar" id="main-nav">
       <div class="logo">
-        <span>Young Tours & Travels</span>
+        <a href="#" class="logo-link"><span>Young Tours & Travels</span></a>
       </div>
       <ul class="nav-links">
         <li><a href="#destinations">Destinations</a></li>
@@ -57,50 +57,57 @@
         <p>Handpicked locations for your next escape.</p>
       </div>
 
-      <div class="card-grid">
-        <!-- Destination Card 1 -->
-        <div class="card">
-          <div
-            class="card-img"
-            style="
-              background-image: url('https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=600&q=80');
-            "
-          ></div>
-          <div class="card-content">
-            <h3>Paris, France</h3>
-            <p>Experience the city of love and lights.</p>
-            <a href="#destinations" class="btn-secondary">View Details</a>
-          </div>
-        </div>
+      <!-- Dynamic Destinations Grid -->
+      <div class="card-grid" id="destinations-grid" aria-live="polite"></div>
+    </section>
 
-        <!-- Destination Card 2 -->
-        <div class="card">
-          <div
-            class="card-img"
-            style="
-              background-image: url('https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=600&q=80');
-            "
-          ></div>
-          <div class="card-content">
-            <h3>Dubai, UAE</h3>
-            <p>Luxury meets futuristic architecture.</p>
-            <a href="#destinations" class="btn-secondary">View Details</a>
-          </div>
-        </div>
+    <!-- Curated Tour Packages Section -->
+    <section id="packages" class="section section-packages">
+      <div class="section-header">
+        <h2>Curated Tour Packages</h2>
+        <p>Explore all-inclusive travel experiences crafted by destination experts.</p>
+      </div>
 
-        <!-- Destination Card 3 -->
-        <div class="card">
-          <div
-            class="card-img"
-            style="
-              background-image: url('https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?auto=format&fit=crop&w=600&q=80');
-            "
-          ></div>
-          <div class="card-content">
-            <h3>Venice, Italy</h3>
-            <p>Romantic canals and historic charm.</p>
-            <a href="#destinations" class="btn-secondary">View Details</a>
-          </div>
+      <!-- Theme Filter Pills Bar -->
+      <div class="theme-filter-container">
+        <div
+          class="theme-filter-bar"
+          id="theme-filter-bar"
+          role="toolbar"
+          aria-label="Filter packages by theme"
+        ></div>
+      </div>
+
+      <!-- Active Filter Status Banner -->
+      <div id="catalogue-filter-status" class="filter-status-container hidden"></div>
+
+      <!-- Dynamic Tour Packages Grid -->
+      <div class="card-grid" id="packages-grid" aria-live="polite"></div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="section section-about">
+      <div class="section-header">
+        <h2>About Young Tours & Travels</h2>
+        <p>
+          Your trusted partner for memorable holidays, family vacations, and custom itineraries.
+        </p>
+      </div>
+      <div class="about-grid">
+        <div class="about-card">
+          <div class="about-icon" aria-hidden="true">✈️</div>
+          <h3>Customized Packages</h3>
+          <p>Handcrafted itineraries tailored to your preferences, travel style, and budget.</p>
+        </div>
+        <div class="about-card">
+          <div class="about-icon" aria-hidden="true">🛡️</div>
+          <h3>Verified Stays</h3>
+          <p>Carefully inspected hotels, luxury resorts, and houseboats for your comfort.</p>
+        </div>
+        <div class="about-card">
+          <div class="about-icon" aria-hidden="true">🌟</div>
+          <h3>Dedicated Support</h3>
+          <p>24/7 on-trip assistance from start to finish ensuring a hassle-free holiday.</p>
         </div>
       </div>
     </section>
@@ -117,6 +124,15 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="auth-modal-title"
+    ></div>
+
+    <!-- Package Detail Modal Container -->
+    <div
+      id="package-detail-modal"
+      class="modal-backdrop hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Package Details"
     ></div>
 
     <!-- Modular Frontend Bootstrap -->
