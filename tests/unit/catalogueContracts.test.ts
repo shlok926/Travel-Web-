@@ -319,7 +319,27 @@ describe('Shared Catalogue Contracts & Zod Validation Schemas (Phase 3 Step 2)',
       ).toBe(false);
     });
 
-    it('3.6 rejects invalid enum values for currency, accommodation tiers, and meal plans', () => {
+    it('3.6 accepts supported currencies (INR, USD) and rejects invalid currencies/enums', () => {
+      // Valid supported currencies: INR and USD
+      const inrResult = createTourPackageSchema.safeParse({
+        ...validPackagePayload,
+        currency: 'INR',
+      });
+      expect(inrResult.success).toBe(true);
+      if (inrResult.success) {
+        expect(inrResult.data.currency).toBe('INR');
+      }
+
+      const usdResult = createTourPackageSchema.safeParse({
+        ...validPackagePayload,
+        currency: 'USD',
+      });
+      expect(usdResult.success).toBe(true);
+      if (usdResult.success) {
+        expect(usdResult.data.currency).toBe('USD');
+      }
+
+      // Unsupported currency: EUR
       expect(
         createTourPackageSchema.safeParse({
           ...validPackagePayload,
