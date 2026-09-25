@@ -582,5 +582,19 @@ describe('Phase 4 Step 4 — Domain & Business Rule Services', () => {
         AppError,
       );
     });
+
+    it('3.9 derives CLOSED status when departure date is in the past even if departure status is OPEN', async () => {
+      vi.mocked(mockDepartureRepo.getAvailabilityById).mockResolvedValueOnce({
+        ...baseAggregate,
+        departureStatus: 'OPEN',
+        departureDate: '2020-01-01', // Explicitly past date
+        availableSeats: 15,
+      });
+
+      const avail = await availabilityService.getDepartureAvailability(sampleDepartureId);
+
+      expect(avail.availabilityStatus).toBe('CLOSED');
+      expect(avail.isAvailableForParty).toBe(false);
+    });
   });
 });
