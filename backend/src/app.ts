@@ -21,6 +21,7 @@ import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
 import { errorHandlerPlugin } from './plugins/errorHandler.js';
+import { swaggerPlugin } from './plugins/swagger.js';
 import { apiRoutes } from './routes/index.js';
 
 export interface AppDependencies {
@@ -99,6 +100,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
+  await app.register(swaggerPlugin, { config });
   await app.register(authPlugin, { userRepo, config });
   await app.register(errorHandlerPlugin);
 

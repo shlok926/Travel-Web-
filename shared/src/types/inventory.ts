@@ -205,7 +205,7 @@ export interface PackageSearchQueryDto {
   isFeatured?: boolean;
 
   // --- Sorting & Pagination ---
-  /** Sort order allowlist. Defaults to 'featured' (DEC-4-006). */
+  /** Sort order allowlist (canonical: price_asc, price_desc, duration_asc, duration_desc; optional extensions: newest, featured). Optional with no contract-level default. */
   sortBy?: PackageSortOption;
   /** Page number (1-indexed, default 1). */
   page?: number;

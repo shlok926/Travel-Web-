@@ -318,13 +318,13 @@ describe('Shared Search & Inventory Contracts & Zod Validation Schemas (Phase 4 
   // 5. Package Search Query Schema Validation
   // ============================================================
   describe('5. PackageSearchQuerySchema Validation', () => {
-    it('5.1 passes with empty query and applies default pagination and sort', () => {
+    it('5.1 passes with empty query and applies default pagination while leaving sortBy undefined (no implicit default)', () => {
       const result = packageSearchQuerySchema.safeParse({});
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.page).toBe(1);
         expect(result.data.limit).toBe(12);
-        expect(result.data.sortBy).toBe('featured');
+        expect(result.data.sortBy).toBeUndefined();
       }
     });
 
@@ -494,6 +494,53 @@ describe('Shared Search & Inventory Contracts & Zod Validation Schemas (Phase 4 
       expect(packageSearchQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
       expect(packageSearchQuerySchema.safeParse({ limit: '51' }).success).toBe(false);
       expect(packageSearchQuerySchema.safeParse({ limit: '100' }).success).toBe(false);
+    });
+
+    it('5.10 verifies optional extensions (minPrice, currency, departure dates, isFeatured, sortBy) are fully optional', () => {
+      // Pure canonical FR-SEARCH-001 & FR-SEARCH-002 query with ZERO optional extensions supplied
+      const pureCanonical = packageSearchQuerySchema.safeParse({
+        q: 'Kashmir',
+        destinationSlug: 'kashmir-valley',
+        themeSlug: 'honeymoon-romance',
+        minDuration: 4,
+        maxDuration: 8,
+        maxPrice: 4500000,
+      });
+
+      expect(pureCanonical.success).toBe(true);
+      if (pureCanonical.success) {
+        expect(pureCanonical.data.minPrice).toBeUndefined();
+        expect(pureCanonical.data.currency).toBeUndefined();
+        expect(pureCanonical.data.departureDateFrom).toBeUndefined();
+        expect(pureCanonical.data.departureDateTo).toBeUndefined();
+        expect(pureCanonical.data.isFeatured).toBeUndefined();
+        expect(pureCanonical.data.sortBy).toBeUndefined();
+      }
+    });
+
+    it('5.11 allows optional extensions to be supplied explicitly without breaking canonical validation', () => {
+      const withExtensions = packageSearchQuerySchema.safeParse({
+        q: 'Manali',
+        destinationSlug: 'himachal-pradesh',
+        themeSlug: 'adventure-trekking',
+        minDuration: 3,
+        maxDuration: 7,
+        maxPrice: 5000000,
+        minPrice: 2000000,
+        currency: 'INR',
+        departureDateFrom: '2026-10-01',
+        departureDateTo: '2026-10-20',
+        isFeatured: true,
+        sortBy: 'price_asc',
+      });
+
+      expect(withExtensions.success).toBe(true);
+      if (withExtensions.success) {
+        expect(withExtensions.data.minPrice).toBe(2000000);
+        expect(withExtensions.data.currency).toBe('INR');
+        expect(withExtensions.data.isFeatured).toBe(true);
+        expect(withExtensions.data.sortBy).toBe('price_asc');
+      }
     });
   });
 

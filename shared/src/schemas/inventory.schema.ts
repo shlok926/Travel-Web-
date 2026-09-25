@@ -253,7 +253,7 @@ export const packageSearchQuerySchema = z
       .optional(),
 
     // --- Sorting & Pagination ---
-    sortBy: z.enum(PACKAGE_SORT_OPTIONS).optional().default('featured'),
+    sortBy: z.enum(PACKAGE_SORT_OPTIONS).optional(),
 
     page: z.coerce.number().int().min(1, 'Page must be at least 1').optional().default(1),
 
