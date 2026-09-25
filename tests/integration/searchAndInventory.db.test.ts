@@ -121,6 +121,32 @@ describe('Phase 4 Step 3 — Search & Inventory Repositories (PostgreSQL Integra
       expect(maliciousResult.total).toBe(0);
       expect(maliciousResult.items).toEqual([]);
     });
+
+    it('1.5 ordinary package search returns packages regardless of departure existence when no date filters are supplied', async () => {
+      if (!isDbAvailable) return;
+
+      // Normal catalogue search without departure date filters
+      const result = await searchRepo.searchPackages({});
+      expect(result.total).toBeGreaterThan(0);
+      expect(result.items.length).toBeGreaterThan(0);
+
+      // Verify that all returned packages are published
+      for (const item of result.items) {
+        expect(item.isPublished).toBe(true);
+      }
+    });
+
+    it('1.6 filters strictly by OPEN departure dates when departureDateFrom/departureDateTo are supplied', async () => {
+      if (!isDbAvailable || !testPackageId) return;
+
+      // Search with a far-future date range where no departures exist
+      const futureResult = await searchRepo.searchPackages({
+        departureDateFrom: '2099-01-01',
+        departureDateTo: '2099-01-31',
+      });
+      expect(futureResult.total).toBe(0);
+      expect(futureResult.items).toHaveLength(0);
+    });
   });
 
   describe('2. Departure & Inventory Hold Repositories Integration', () => {
@@ -215,6 +241,29 @@ describe('Phase 4 Step 3 — Search & Inventory Repositories (PostgreSQL Integra
         expect(lockedDeparture).not.toBeNull();
         expect(lockedDeparture?.id).toBe(createdDepartureId);
       });
+    });
+
+    it('2.5 incrementBookedSeats increments booked seats and prevents overbooking via DB capacity constraint', async () => {
+      if (!isDbAvailable || !createdDepartureId) return;
+
+      // Increment valid seat count (e.g., 5 seats out of 20 total)
+      await db!.withTransaction(async (client) => {
+        const updated = await departureRepo.incrementBookedSeats(createdDepartureId, 5, client);
+        expect(updated).not.toBeNull();
+        expect(updated?.bookedSeats).toBe(5);
+      });
+
+      // Attempt to increment beyond remaining capacity (16 more seats when capacity is 20 and 5 are booked)
+      // Must throw PostgreSQL check constraint violation (chk_departure_capacity_bounds)
+      await expect(
+        db!.withTransaction(async (client) => {
+          await departureRepo.incrementBookedSeats(createdDepartureId, 16, client);
+        }),
+      ).rejects.toThrow();
+
+      // Verify booked_seats remains 5
+      const finalDeparture = await departureRepo.findById(createdDepartureId);
+      expect(finalDeparture?.bookedSeats).toBe(5);
     });
   });
 });
