@@ -18,7 +18,9 @@
     "format:check": "prettier --check \"{backend,worker,shared,tests,frontend,docs}/**/*.{ts,js,html,css,json,md}\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "db:migrate": "tsx backend/src/infrastructure/database/migrator.ts",
+    "db:seed": "tsx backend/src/infrastructure/database/seeds/seedAdmin.ts"
   },
   "keywords": [
     "tours-and-travels",

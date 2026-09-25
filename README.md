@@ -112,6 +112,7 @@ Travel-Web-/
 * [Phase 1.6 Testing Foundation Report](docs/PHASE_1_6_TESTING_FOUNDATION.md)
 * [Phase 1.8 Security Baseline Report](docs/PHASE_1_8_SECURITY_BASELINE.md)
 * [Phase 1 Final Review & Freeze Gate](docs/PHASE_1_FINAL_REVIEW.md) *(Phase 1 FROZEN)*
+* [Phase 2 Identity & Access Management](docs/phase-2/README.md) *(Phase 2 FROZEN)*
 
 ---
 

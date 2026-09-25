@@ -1,9 +1,18 @@
 import { NavbarComponent } from './components/navbar.js';
+import { AuthModal } from './components/authModal.js';
 import { api } from './api/client.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Initialize UI Components
+  AuthModal.init();
   NavbarComponent.init();
+
+  // Non-blocking background session restoration via HttpOnly cookie
+  try {
+    await api.restoreSession();
+  } catch {
+    // Unauthenticated state is normal on initial load / reload
+  }
 
   // Log API Client readiness
   // eslint-disable-next-line no-console

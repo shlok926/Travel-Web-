@@ -88,3 +88,6 @@ export class DatabaseService {
     }
   }
 }
+
+export * from './migrator.js';
+export * from './seeds/seedAdmin.js';
