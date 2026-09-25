@@ -2,7 +2,7 @@ import { escapeHtml, formatPrice, formatDuration, FALLBACK_IMAGE } from '../util
 
 /**
  * Render a Tour Package Card HTML template
- * @param {object} pkg - TourPackageCardDto
+ * @param {object} pkg - PackageSearchResultDto | TourPackageCardDto
  * @returns {string} HTML string
  */
 export function renderPackageCard(pkg) {
@@ -13,8 +13,45 @@ export function renderPackageCard(pkg) {
   const themeTitle = pkg.theme?.title ? escapeHtml(pkg.theme.title) : null;
   const imageUrl = pkg.heroImageUrl ? escapeHtml(pkg.heroImageUrl) : FALLBACK_IMAGE;
   const duration = formatDuration(pkg.durationDays, pkg.durationNights);
-  const formattedPrice = formatPrice(pkg.baseAdultPrice, pkg.currency);
   const isFeatured = Boolean(pkg.isFeatured);
+
+  // Next departure availability metadata (Phase 4)
+  const nextDep = pkg.nextDeparture;
+  let departureBadgeHtml = '';
+  let effectivePrice = pkg.baseAdultPrice;
+  const currency = nextDep?.currency || pkg.currency || 'INR';
+
+  if (nextDep) {
+    effectivePrice = nextDep.effectiveAdultPrice || pkg.baseAdultPrice;
+    const depDate = escapeHtml(nextDep.departureDate);
+    const availSeats = Number(nextDep.availableSeats ?? 0);
+
+    let statusBadgeClass = 'badge-available';
+    let statusText = 'Available';
+
+    if (nextDep.availabilityStatus === 'FEW_SEATS_LEFT') {
+      statusBadgeClass = 'badge-few-seats';
+      statusText = `Only ${availSeats} Left!`;
+    } else if (nextDep.availabilityStatus === 'SOLD_OUT') {
+      statusBadgeClass = 'badge-sold-out';
+      statusText = 'Sold Out';
+    } else if (nextDep.availabilityStatus === 'CLOSED') {
+      statusBadgeClass = 'badge-closed';
+      statusText = 'Closed';
+    } else if (nextDep.availabilityStatus === 'CANCELLED') {
+      statusBadgeClass = 'badge-cancelled';
+      statusText = 'Cancelled';
+    }
+
+    departureBadgeHtml = `
+      <div class="card-next-departure">
+        <span class="next-dep-date">📅 Next: ${depDate}</span>
+        <span class="badge ${statusBadgeClass}">${statusText}</span>
+      </div>
+    `;
+  }
+
+  const formattedPrice = formatPrice(effectivePrice, currency);
 
   return `
     <article class="card package-card" data-slug="${slug}">
@@ -42,6 +79,8 @@ export function renderPackageCard(pkg) {
         <h3 class="card-title">${title}</h3>
         <p class="card-description">${shortDescription}</p>
         
+        ${departureBadgeHtml}
+
         <div class="card-footer">
           <div class="card-price-block">
             <span class="price-label">Starting from</span>

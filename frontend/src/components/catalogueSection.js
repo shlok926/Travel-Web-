@@ -5,50 +5,174 @@ import { PackageDetailModal } from './packageDetailModal.js';
 import { escapeHtml } from '../utils/formatters.js';
 
 /**
- * Orchestrator component for Dynamic Catalogue Experience
+ * Orchestrator component for Dynamic Catalogue & Phase 4 Search Experience
  */
 export class CatalogueSection {
-  /** @type {{ destinationSlug: string | null, themeSlug: string | null }} */
-  static currentFilter = {
-    destinationSlug: null,
-    themeSlug: null,
-  };
-
+  /**
+   * @type {{
+   *   filters: {
+   *     q: string;
+   *     destinationSlug: string | null;
+   *     themeSlug: string | null;
+   *     minDuration: number | null;
+   *     maxDuration: number | null;
+   *     maxPrice: number | null;
+   *     sortBy: string | null;
+   *     page: number;
+   *     limit: number;
+   *   };
+   *   destinations: any[];
+   *   themes: any[];
+   *   packages: any[];
+   *   pagination: {
+   *     page: number;
+   *     limit: number;
+   *     total: number;
+   *     totalPages: number;
+   *     hasNextPage: boolean;
+   *     hasPrevPage: boolean;
+   *   };
+   *   loadingDestinations: boolean;
+   *   loadingPackages: boolean;
+   *   errorDestinations: any;
+   *   errorPackages: any;
+   * }}
+   */
   static state = {
+    filters: {
+      q: '',
+      destinationSlug: null,
+      themeSlug: null,
+      minDuration: null,
+      maxDuration: null,
+      maxPrice: null,
+      sortBy: null,
+      page: 1,
+      limit: 12,
+    },
     destinations: [],
     themes: [],
     packages: [],
+    pagination: {
+      page: 1,
+      limit: 12,
+      total: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPrevPage: false,
+    },
     loadingDestinations: false,
     loadingPackages: false,
     errorDestinations: null,
     errorPackages: null,
   };
 
+  // Stale request protection & debounce timers
+  static latestRequestId = 0;
+  static searchDebounceTimer = null;
+  static currentAbortController = null;
+
   static async init() {
     this.destContainer = document.getElementById('destinations-grid');
     this.pkgContainer = document.getElementById('packages-grid');
     this.themeBar = document.getElementById('theme-filter-bar');
     this.filterStatusContainer = document.getElementById('catalogue-filter-status');
+    this.paginationContainer = document.getElementById('packages-pagination');
 
-    // Attach search input listener if present in hero
-    const searchInput = document.getElementById('search-input');
-    const searchBtn = document.getElementById('search-btn');
-    if (searchBtn && searchInput) {
-      searchBtn.addEventListener('click', () => {
-        const query = searchInput.value.trim().toLowerCase();
-        if (query) {
-          // Find matching destination or scroll to packages
-          const matchedDest = this.state.destinations.find(
-            (d) =>
-              d.cityName.toLowerCase().includes(query) || d.country.toLowerCase().includes(query),
-          );
-          if (matchedDest) {
-            this.filterByDestination(matchedDest.slug);
-          } else {
-            // Scroll to packages section
-            document.getElementById('packages')?.scrollIntoView({ behavior: 'smooth' });
-          }
+    // Filter controls
+    this.filterSearchInput = document.getElementById('filter-search-input');
+    this.filterDestSelect = document.getElementById('filter-destination-select');
+    this.filterDurationSelect = document.getElementById('filter-duration-select');
+    this.filterPriceSelect = document.getElementById('filter-price-select');
+    this.filterSortSelect = document.getElementById('filter-sort-select');
+    this.filterResetBtn = document.getElementById('filter-reset-btn');
+
+    // Attach search input listener from Hero section
+    const heroSearchInput = document.getElementById('search-input');
+    const heroSearchBtn = document.getElementById('search-btn');
+    if (heroSearchBtn && heroSearchInput) {
+      const handleHeroSearch = () => {
+        const query = heroSearchInput.value.trim();
+        if (this.filterSearchInput) {
+          this.filterSearchInput.value = query;
         }
+        this.state.filters.q = query;
+        this.state.filters.page = 1;
+        this.loadPackages();
+
+        const pkgSection = document.getElementById('packages');
+        if (pkgSection) {
+          pkgSection.scrollIntoView({ behavior: 'smooth' });
+        }
+      };
+
+      heroSearchBtn.addEventListener('click', handleHeroSearch);
+      heroSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleHeroSearch();
+        }
+      });
+    }
+
+    // Attach search & filter toolbar listeners
+    if (this.filterSearchInput) {
+      this.filterSearchInput.addEventListener('input', () => {
+        if (this.searchDebounceTimer) {
+          clearTimeout(this.searchDebounceTimer);
+        }
+        this.searchDebounceTimer = setTimeout(() => {
+          this.state.filters.q = this.filterSearchInput.value.trim();
+          this.state.filters.page = 1;
+          this.loadPackages();
+        }, 300);
+      });
+    }
+
+    if (this.filterDestSelect) {
+      this.filterDestSelect.addEventListener('change', () => {
+        this.state.filters.destinationSlug = this.filterDestSelect.value || null;
+        this.state.filters.page = 1;
+        this.loadPackages();
+      });
+    }
+
+    if (this.filterDurationSelect) {
+      this.filterDurationSelect.addEventListener('change', () => {
+        const val = this.filterDurationSelect.value;
+        if (!val) {
+          this.state.filters.minDuration = null;
+          this.state.filters.maxDuration = null;
+        } else {
+          const [min, max] = val.split('-').map(Number);
+          this.state.filters.minDuration = min || null;
+          this.state.filters.maxDuration = max || null;
+        }
+        this.state.filters.page = 1;
+        this.loadPackages();
+      });
+    }
+
+    if (this.filterPriceSelect) {
+      this.filterPriceSelect.addEventListener('change', () => {
+        const val = this.filterPriceSelect.value;
+        this.state.filters.maxPrice = val ? Number(val) : null;
+        this.state.filters.page = 1;
+        this.loadPackages();
+      });
+    }
+
+    if (this.filterSortSelect) {
+      this.filterSortSelect.addEventListener('change', () => {
+        this.state.filters.sortBy = this.filterSortSelect.value || null;
+        this.state.filters.page = 1;
+        this.loadPackages();
+      });
+    }
+
+    if (this.filterResetBtn) {
+      this.filterResetBtn.addEventListener('click', () => {
+        this.resetFilters();
       });
     }
 
@@ -74,6 +198,7 @@ export class CatalogueSection {
     try {
       const items = await api.getDestinations({ limit: 12 });
       this.state.destinations = Array.isArray(items) ? items : [];
+      this.populateDestinationSelect();
       this.renderDestinations();
     } catch (err) {
       this.state.errorDestinations = err;
@@ -81,6 +206,22 @@ export class CatalogueSection {
     } finally {
       this.state.loadingDestinations = false;
     }
+  }
+
+  /**
+   * Populate destination dropdown options
+   */
+  static populateDestinationSelect() {
+    if (!this.filterDestSelect) return;
+    const currentVal = this.state.filters.destinationSlug || '';
+    const options = [
+      '<option value="">All Destinations</option>',
+      ...this.state.destinations.map(
+        (d) =>
+          `<option value="${escapeHtml(d.slug)}"${d.slug === currentVal ? ' selected' : ''}>${escapeHtml(d.cityName)}, ${escapeHtml(d.country)}</option>`,
+      ),
+    ];
+    this.filterDestSelect.innerHTML = options.join('');
   }
 
   /**
@@ -100,32 +241,81 @@ export class CatalogueSection {
   }
 
   /**
-   * Load published tour packages with active filters
+   * Load tour packages using Phase 4 Search API with active filters, sorting, and pagination
    */
   static async loadPackages() {
     if (!this.pkgContainer) return;
+
+    // Stale request race condition protection
+    const requestId = ++this.latestRequestId;
+
+    if (this.currentAbortController) {
+      try {
+        this.currentAbortController.abort();
+      } catch {
+        // ignore
+      }
+    }
+    this.currentAbortController =
+      typeof AbortController !== 'undefined' ? new AbortController() : null;
+
     this.state.loadingPackages = true;
     this.state.errorPackages = null;
     this.renderPackagesLoading();
     this.renderFilterStatus();
 
     try {
-      const params = { limit: 20 };
-      if (this.currentFilter.destinationSlug) {
-        params.destinationSlug = this.currentFilter.destinationSlug;
-      }
-      if (this.currentFilter.themeSlug) {
-        params.themeSlug = this.currentFilter.themeSlug;
+      const cleanParams = {};
+      if (this.state.filters.q) cleanParams.q = this.state.filters.q;
+      if (this.state.filters.destinationSlug)
+        cleanParams.destinationSlug = this.state.filters.destinationSlug;
+      if (this.state.filters.themeSlug) cleanParams.themeSlug = this.state.filters.themeSlug;
+      if (this.state.filters.minDuration) cleanParams.minDuration = this.state.filters.minDuration;
+      if (this.state.filters.maxDuration) cleanParams.maxDuration = this.state.filters.maxDuration;
+      if (this.state.filters.maxPrice) cleanParams.maxPrice = this.state.filters.maxPrice;
+      if (this.state.filters.sortBy) cleanParams.sortBy = this.state.filters.sortBy;
+      cleanParams.page = this.state.filters.page || 1;
+      cleanParams.limit = this.state.filters.limit || 12;
+
+      const result = await api.searchPackages(cleanParams, {
+        signal: this.currentAbortController?.signal,
+      });
+
+      // Ignore stale response if a newer search request was initiated
+      if (requestId !== this.latestRequestId) {
+        return;
       }
 
-      const items = await api.getPackages(params);
-      this.state.packages = Array.isArray(items) ? items : [];
+      this.state.packages = Array.isArray(result?.items) ? result.items : [];
+      this.state.pagination = result.pagination || {
+        page: cleanParams.page,
+        limit: cleanParams.limit,
+        total: this.state.packages.length,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      };
+
       this.renderPackages();
+      this.renderPagination();
+      this.renderFilterStatus();
     } catch (err) {
+      if (err?.name === 'AbortError') {
+        return;
+      }
+      if (requestId !== this.latestRequestId) {
+        return;
+      }
       this.state.errorPackages = err;
       this.renderPackagesError(err);
+      if (this.paginationContainer) {
+        this.paginationContainer.innerHTML = '';
+        this.paginationContainer.classList.add('hidden');
+      }
     } finally {
-      this.state.loadingPackages = false;
+      if (requestId === this.latestRequestId) {
+        this.state.loadingPackages = false;
+      }
     }
   }
 
@@ -134,7 +324,11 @@ export class CatalogueSection {
    * @param {string|null} destinationSlug
    */
   static filterByDestination(destinationSlug) {
-    this.currentFilter.destinationSlug = destinationSlug;
+    this.state.filters.destinationSlug = destinationSlug;
+    this.state.filters.page = 1;
+    if (this.filterDestSelect) {
+      this.filterDestSelect.value = destinationSlug || '';
+    }
     this.loadPackages();
     const pkgSection = document.getElementById('packages');
     if (pkgSection) {
@@ -147,19 +341,60 @@ export class CatalogueSection {
    * @param {string|null} themeSlug
    */
   static filterByTheme(themeSlug) {
-    this.currentFilter.themeSlug = themeSlug;
+    this.state.filters.themeSlug = themeSlug;
+    this.state.filters.page = 1;
     this.renderThemes();
     this.loadPackages();
   }
 
   /**
-   * Clear all active catalogue filters
+   * Change pagination page
+   * @param {number} newPage
    */
-  static clearFilters() {
-    this.currentFilter.destinationSlug = null;
-    this.currentFilter.themeSlug = null;
+  static goToPage(newPage) {
+    if (newPage < 1) return;
+    this.state.filters.page = newPage;
+    this.loadPackages();
+    const pkgSection = document.getElementById('packages');
+    if (pkgSection) {
+      pkgSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  /**
+   * Reset all search and filter controls to default
+   */
+  static resetFilters() {
+    this.state.filters = {
+      q: '',
+      destinationSlug: null,
+      themeSlug: null,
+      minDuration: null,
+      maxDuration: null,
+      maxPrice: null,
+      sortBy: null,
+      page: 1,
+      limit: 12,
+    };
+
+    if (this.filterSearchInput) this.filterSearchInput.value = '';
+    if (this.filterDestSelect) this.filterDestSelect.value = '';
+    if (this.filterDurationSelect) this.filterDurationSelect.value = '';
+    if (this.filterPriceSelect) this.filterPriceSelect.value = '';
+    if (this.filterSortSelect) this.filterSortSelect.value = '';
+
+    const heroInput = document.getElementById('search-input');
+    if (heroInput) heroInput.value = '';
+
     this.renderThemes();
     this.loadPackages();
+  }
+
+  /**
+   * Backward-compatible alias for clearing filters
+   */
+  static clearFilters() {
+    this.resetFilters();
   }
 
   /**
@@ -273,7 +508,7 @@ export class CatalogueSection {
       return;
     }
 
-    const allActive = !this.currentFilter.themeSlug;
+    const allActive = !this.state.filters.themeSlug;
 
     this.themeBar.innerHTML = `
       <button type="button" class="theme-pill ${allActive ? 'active' : ''}" data-theme="">
@@ -281,7 +516,7 @@ export class CatalogueSection {
       </button>
       ${this.state.themes
         .map((t) => {
-          const isActive = this.currentFilter.themeSlug === t.slug;
+          const isActive = this.state.filters.themeSlug === t.slug;
           return `
           <button type="button" class="theme-pill ${isActive ? 'active' : ''}" data-theme="${escapeHtml(t.slug)}">
             ${escapeHtml(t.title)}
@@ -318,13 +553,15 @@ export class CatalogueSection {
       .join('');
   }
 
-  static renderPackagesError(_err) {
+  static renderPackagesError(err) {
     if (!this.pkgContainer) return;
+    const userSafeMessage =
+      err?.message || 'Could not connect to catalogue services. Please try again.';
     this.pkgContainer.innerHTML = `
       <div class="catalogue-state-card error-state">
         <span class="state-icon" aria-hidden="true">⚠️</span>
         <h3>Unable to load packages</h3>
-        <p>Could not connect to catalogue services. Please try again.</p>
+        <p>${escapeHtml(userSafeMessage)}</p>
         <button type="button" class="btn-primary" id="retry-packages-btn">Retry</button>
       </div>
     `;
@@ -339,22 +576,14 @@ export class CatalogueSection {
       this.pkgContainer.innerHTML = `
         <div class="catalogue-state-card empty-state">
           <span class="state-icon" aria-hidden="true">🎒</span>
-          <h3>No travel packages found</h3>
-          <p>${
-            this.currentFilter.destinationSlug || this.currentFilter.themeSlug
-              ? 'No packages match the selected filter.'
-              : 'Our team is preparing exciting packages for you.'
-          }</p>
-          ${
-            this.currentFilter.destinationSlug || this.currentFilter.themeSlug
-              ? '<button type="button" class="btn-secondary" id="clear-filters-btn">Clear Filters</button>'
-              : ''
-          }
+          <h3>No tour packages found</h3>
+          <p>We couldn't find any tour packages matching your search criteria. Try adjusting your filters.</p>
+          <button type="button" class="btn-primary" id="empty-state-reset-btn">Reset All Filters</button>
         </div>
       `;
       this.pkgContainer
-        .querySelector('#clear-filters-btn')
-        ?.addEventListener('click', () => this.clearFilters());
+        .querySelector('#empty-state-reset-btn')
+        ?.addEventListener('click', () => this.resetFilters());
       return;
     }
 
@@ -377,38 +606,160 @@ export class CatalogueSection {
     });
   }
 
+  static renderPagination() {
+    if (!this.paginationContainer) return;
+
+    const { page, totalPages, total, hasPrevPage, hasNextPage } = this.state.pagination;
+
+    if (!totalPages || totalPages <= 1) {
+      this.paginationContainer.innerHTML = '';
+      this.paginationContainer.classList.add('hidden');
+      return;
+    }
+
+    let pagesHtml = '';
+    const startPage = Math.max(1, page - 2);
+    const endPage = Math.min(totalPages, page + 2);
+
+    for (let p = startPage; p <= endPage; p++) {
+      pagesHtml += `
+        <button
+          type="button"
+          class="pagination-page-btn ${p === page ? 'active' : ''}"
+          data-page="${p}"
+          aria-label="Go to page ${p}"
+          ${p === page ? 'aria-current="page"' : ''}
+        >
+          ${p}
+        </button>
+      `;
+    }
+
+    this.paginationContainer.innerHTML = `
+      <div class="pagination-wrapper">
+        <div class="pagination-info">
+          Showing page <strong>${page}</strong> of <strong>${totalPages}</strong> (${total} total packages)
+        </div>
+        <div class="pagination-controls">
+          <button
+            type="button"
+            class="pagination-nav-btn btn-prev"
+            id="pagination-prev-btn"
+            ${!hasPrevPage ? 'disabled' : ''}
+            aria-label="Previous page"
+          >
+            &larr; Previous
+          </button>
+          <div class="pagination-pages">
+            ${pagesHtml}
+          </div>
+          <button
+            type="button"
+            class="pagination-nav-btn btn-next"
+            id="pagination-next-btn"
+            ${!hasNextPage ? 'disabled' : ''}
+            aria-label="Next page"
+          >
+            Next &rarr;
+          </button>
+        </div>
+      </div>
+    `;
+
+    this.paginationContainer.classList.remove('hidden');
+
+    // Attach listeners
+    this.paginationContainer
+      .querySelector('#pagination-prev-btn')
+      ?.addEventListener('click', () => {
+        if (hasPrevPage) {
+          this.goToPage(page - 1);
+        }
+      });
+
+    this.paginationContainer
+      .querySelector('#pagination-next-btn')
+      ?.addEventListener('click', () => {
+        if (hasNextPage) {
+          this.goToPage(page + 1);
+        }
+      });
+
+    this.paginationContainer.querySelectorAll('.pagination-page-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetPage = Number(btn.getAttribute('data-page'));
+        if (targetPage && targetPage !== page) {
+          this.goToPage(targetPage);
+        }
+      });
+    });
+  }
+
   static renderFilterStatus() {
     if (!this.filterStatusContainer) return;
-    const hasFilter = Boolean(this.currentFilter.destinationSlug || this.currentFilter.themeSlug);
 
-    if (!hasFilter) {
+    const f = this.state.filters;
+    const activeFilters = [];
+
+    if (f.q) {
+      activeFilters.push(`Keyword: "<strong>${escapeHtml(f.q)}</strong>"`);
+    }
+
+    if (f.destinationSlug) {
+      const dest = this.state.destinations.find((d) => d.slug === f.destinationSlug);
+      const label = dest ? dest.cityName : f.destinationSlug;
+      activeFilters.push(`Destination: <strong>${escapeHtml(label)}</strong>`);
+    }
+
+    if (f.themeSlug) {
+      const theme = this.state.themes.find((t) => t.slug === f.themeSlug);
+      const label = theme ? theme.title : f.themeSlug;
+      activeFilters.push(`Theme: <strong>${escapeHtml(label)}</strong>`);
+    }
+
+    if (f.minDuration || f.maxDuration) {
+      const durLabel = f.maxDuration
+        ? `${f.minDuration || 1} - ${f.maxDuration} Days`
+        : `${f.minDuration}+ Days`;
+      activeFilters.push(`Duration: <strong>${escapeHtml(durLabel)}</strong>`);
+    }
+
+    if (f.maxPrice) {
+      const priceFormatted = (f.maxPrice / 100).toLocaleString('en-IN');
+      activeFilters.push(`Budget: <strong>Under ₹${priceFormatted}</strong>`);
+    }
+
+    if (f.sortBy) {
+      const sortLabels = {
+        price_asc: 'Price: Low to High',
+        price_desc: 'Price: High to Low',
+        duration_asc: 'Duration: Short to Long',
+        duration_desc: 'Duration: Long to Short',
+        newest: 'Newest First',
+        featured: 'Featured First',
+      };
+      activeFilters.push(`Sort: <strong>${escapeHtml(sortLabels[f.sortBy] || f.sortBy)}</strong>`);
+    }
+
+    if (activeFilters.length === 0) {
       this.filterStatusContainer.innerHTML = '';
       this.filterStatusContainer.classList.add('hidden');
       return;
     }
 
-    let filterLabel = 'Showing packages';
-    if (this.currentFilter.destinationSlug) {
-      const dest = this.state.destinations.find(
-        (d) => d.slug === this.currentFilter.destinationSlug,
-      );
-      filterLabel += ` in <strong>${escapeHtml(dest ? dest.cityName : this.currentFilter.destinationSlug)}</strong>`;
-    }
-    if (this.currentFilter.themeSlug) {
-      const theme = this.state.themes.find((t) => t.slug === this.currentFilter.themeSlug);
-      filterLabel += ` for theme <strong>${escapeHtml(theme ? theme.title : this.currentFilter.themeSlug)}</strong>`;
-    }
-
     this.filterStatusContainer.innerHTML = `
       <div class="active-filter-banner">
-        <span>${filterLabel}</span>
-        <button type="button" class="btn-clear-filter" id="btn-banner-clear-filter" aria-label="Clear active filters">&times; Clear</button>
+        <div class="active-filter-labels">
+          <span class="active-filter-title">Active Filters:</span>
+          ${activeFilters.join(' • ')}
+        </div>
+        <button type="button" class="btn-clear-filter" id="btn-banner-clear-filter" aria-label="Clear active filters">&times; Clear All</button>
       </div>
     `;
     this.filterStatusContainer.classList.remove('hidden');
 
     this.filterStatusContainer
       .querySelector('#btn-banner-clear-filter')
-      ?.addEventListener('click', () => this.clearFilters());
+      ?.addEventListener('click', () => this.resetFilters());
   }
 }
