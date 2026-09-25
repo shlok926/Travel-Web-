@@ -17,6 +17,13 @@ import {
   ThemeService,
   TourPackageService,
 } from './modules/catalogue/index.js';
+import { PackageSearchRepository, PackageSearchService } from './modules/search/index.js';
+import {
+  DepartureRepository,
+  InventoryHoldRepository,
+  DepartureService,
+  AvailabilityService,
+} from './modules/inventory/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -39,6 +46,12 @@ export interface AppDependencies {
   destinationService?: DestinationService;
   themeService?: ThemeService;
   tourPackageService?: TourPackageService;
+  packageSearchRepo?: PackageSearchRepository;
+  departureRepo?: DepartureRepository;
+  holdRepo?: InventoryHoldRepository;
+  packageSearchService?: PackageSearchService;
+  departureService?: DepartureService;
+  availabilityService?: AvailabilityService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -50,6 +63,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   destinationService: DestinationService;
   themeService: ThemeService;
   tourPackageService: TourPackageService;
+  packageSearchService: PackageSearchService;
+  departureService: DepartureService;
+  availabilityService: AvailabilityService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -97,6 +113,18 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     dependencies.tourPackageService ??
     new TourPackageService(tourPackageRepo, destinationRepo, themeRepo, itineraryRepo, db);
 
+  // Instantiate Search & Inventory Layer (Phase 4)
+  const packageSearchRepo = dependencies.packageSearchRepo ?? new PackageSearchRepository(db);
+  const departureRepo = dependencies.departureRepo ?? new DepartureRepository(db);
+  const holdRepo = dependencies.holdRepo ?? new InventoryHoldRepository(db);
+
+  const packageSearchService =
+    dependencies.packageSearchService ?? new PackageSearchService(packageSearchRepo);
+  const departureService =
+    dependencies.departureService ?? new DepartureService(departureRepo, tourPackageRepo, holdRepo);
+  const availabilityService =
+    dependencies.availabilityService ?? new AvailabilityService(departureRepo);
+
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
@@ -121,6 +149,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     destinationService,
     themeService,
     tourPackageService,
+    packageSearchService,
+    departureService,
+    availabilityService,
     config,
   });
 
@@ -133,6 +164,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     destinationService,
     themeService,
     tourPackageService,
+    packageSearchService,
+    departureService,
+    availabilityService,
     config,
   };
 }

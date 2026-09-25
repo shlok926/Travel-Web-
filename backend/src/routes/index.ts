@@ -13,6 +13,13 @@ import {
   publicCatalogueRoutes,
   adminCatalogueRoutes,
 } from '../modules/catalogue/index.js';
+import { PackageSearchService, searchRoutes } from '../modules/search/index.js';
+import {
+  DepartureService,
+  AvailabilityService,
+  publicInventoryRoutes,
+  adminInventoryRoutes,
+} from '../modules/inventory/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -22,6 +29,9 @@ export interface ApiRoutesOptions {
   destinationService?: DestinationService;
   themeService?: ThemeService;
   tourPackageService?: TourPackageService;
+  packageSearchService?: PackageSearchService;
+  departureService?: DepartureService;
+  availabilityService?: AvailabilityService;
   config?: EnvConfig;
 }
 
@@ -58,6 +68,28 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
       destinationService: options.destinationService,
       themeService: options.themeService,
       tourPackageService: options.tourPackageService,
+    });
+  }
+
+  // 5. Register Package Search Routes under /api/v1/packages/search
+  if (options.packageSearchService) {
+    await fastify.register(searchRoutes, {
+      searchService: options.packageSearchService,
+    });
+  }
+
+  // 6. Register Public Inventory & Departure Routes under /api/v1/ (e.g. /packages/:slug/departures, /departures/:id/availability)
+  if (options.departureService && options.availabilityService && options.tourPackageService) {
+    await fastify.register(publicInventoryRoutes, {
+      departureService: options.departureService,
+      availabilityService: options.availabilityService,
+      tourPackageService: options.tourPackageService,
+    });
+
+    // 7. Register Admin Inventory & Departure Routes under /api/v1/admin
+    await fastify.register(adminInventoryRoutes, {
+      prefix: '/admin',
+      departureService: options.departureService,
     });
   }
 };
