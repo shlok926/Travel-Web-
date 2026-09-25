@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS departure_schedules (
     booked_seats INTEGER NOT NULL DEFAULT 0 CHECK (booked_seats >= 0),
     price_override_adult BIGINT CHECK (price_override_adult IS NULL OR price_override_adult >= 0),
     price_override_child BIGINT CHECK (price_override_child IS NULL OR price_override_child >= 0),
-    currency VARCHAR(3) NOT NULL DEFAULT 'INR',
+    currency VARCHAR(3),
     status departure_status NOT NULL DEFAULT 'OPEN',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

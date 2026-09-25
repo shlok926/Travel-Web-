@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
+import { DatabaseService, runMigrations } from '../../backend/src/infrastructure/database/index.js';
 import { loadEnv } from '../../backend/src/config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,6 +26,13 @@ describe('Phase 4 Step 1 — Departure Schedules & Inventory Holds Database Sche
       const health = await db.checkHealth();
       if (health.status === 'healthy') {
         isDbAvailable = true;
+        // Clean migration 003 tables and re-apply migration 003 freshly
+        await db.query(`
+          DROP TABLE IF EXISTS inventory_holds CASCADE;
+          DROP TABLE IF EXISTS departure_schedules CASCADE;
+          DELETE FROM schema_migrations WHERE migration_name = '003_create_departures_and_inventory_schema.sql';
+        `);
+        await runMigrations(db);
       }
     } catch {
       isDbAvailable = false;
@@ -92,9 +99,7 @@ describe('Phase 4 Step 1 — Departure Schedules & Inventory Holds Database Sche
       expect(departureTableBlock).toMatch(
         /price_override_child\s+BIGINT\s+CHECK\s*\(\s*price_override_child\s+IS\s+NULL\s+OR\s+price_override_child\s*>=\s*0\s*\)/i,
       );
-      expect(departureTableBlock).toMatch(
-        /currency\s+VARCHAR\(3\)\s+NOT\s+NULL\s+DEFAULT\s+['"]INR['"]/i,
-      );
+      expect(departureTableBlock).toMatch(/currency\s+VARCHAR\(3\)/i);
 
       // Status
       expect(departureTableBlock).toMatch(
@@ -227,6 +232,16 @@ describe('Phase 4 Step 1 — Departure Schedules & Inventory Holds Database Sche
       expect(columnNames).toContain('status');
       expect(columnNames).toContain('created_at');
       expect(columnNames).toContain('updated_at');
+
+      // Optional price overrides and currency must be nullable
+      const currencyCol = result.rows.find((r) => r.column_name === 'currency');
+      expect(currencyCol?.is_nullable).toBe('YES');
+
+      const adultOverrideCol = result.rows.find((r) => r.column_name === 'price_override_adult');
+      expect(adultOverrideCol?.is_nullable).toBe('YES');
+
+      const childOverrideCol = result.rows.find((r) => r.column_name === 'price_override_child');
+      expect(childOverrideCol?.is_nullable).toBe('YES');
 
       // Crucial: Must NOT contain held_seats or available_seats
       expect(columnNames).not.toContain('held_seats');
