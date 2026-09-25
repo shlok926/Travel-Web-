@@ -1,14 +1,16 @@
 # PHASE 4 — STEP 0: SEARCH, FILTERS & AVAILABILITY
+
 ## DISCOVERY, REQUIREMENTS RECONCILIATION & IMPLEMENTATION PLAN
 
 **Project:** Travel-Web / Young Tours & Travels  
 **Module:** Search Engine, Multi-Criteria Filters, Departure Scheduling & Inventory Availability  
 **Document Status:** Canonical Engineering Architecture & Implementation Plan  
-**Upstream Frozen Baselines:**  
-- Phase 0: Requirements Specification (`docs/PHASE_0_3_REQUIREMENTS_SPECIFICATION.md` v3.0.0), System Architecture (`docs/PHASE_0_4_2_SYSTEM_ARCHITECTURE.md`), Data Architecture (`docs/PHASE_0_4_6_DATA_ARCHITECTURE.md`)  
-- Phase 1: Foundation Baseline (`docs/PHASE_1_FINAL_REVIEW.md`)  
-- Phase 2: Authentication & RBAC (`docs/phase-2/README.md`)  
-- Phase 3: Destinations & Package Catalogue (`docs/phase-3/PHASE-3-FINAL-INTEGRATION-AUDIT.md` — Commit `df3dd7d`)  
+**Upstream Frozen Baselines:**
+
+- Phase 0: Requirements Specification (`docs/PHASE_0_3_REQUIREMENTS_SPECIFICATION.md` v3.0.0), System Architecture (`docs/PHASE_0_4_2_SYSTEM_ARCHITECTURE.md`), Data Architecture (`docs/PHASE_0_4_6_DATA_ARCHITECTURE.md`)
+- Phase 1: Foundation Baseline (`docs/PHASE_1_FINAL_REVIEW.md`)
+- Phase 2: Authentication & RBAC (`docs/phase-2/README.md`)
+- Phase 3: Destinations & Package Catalogue (`docs/phase-3/PHASE-3-FINAL-INTEGRATION-AUDIT.md` — Commit `df3dd7d`)
 
 ---
 
@@ -25,6 +27,7 @@ $$\text{Storefront Keyword / Multi-Criteria Search} \longrightarrow \text{Filter
 ## 2. Current Architecture Baseline
 
 The platform operates on a Modular Monolith architecture backed by PostgreSQL and an asynchronous worker tier:
+
 - **Frontend:** Vanilla HTML5, CSS3, ES6 JavaScript. Componentized architecture (`catalogueSection.js`, `packageDetailModal.js`, `packageCard.js`, `destinationCard.js`, `navbar.js`, `authModal.js`), unified API client (`api/client.js`), and centralized auth state (`state/authStore.js`).
 - **Backend:** Node.js, TypeScript, Fastify 5.x. Layered architecture: Controllers $\to$ Services $\to$ Repositories $\to$ Database.
 - **Database Access:** PostgreSQL 15+ accessed via `DatabaseService` (`backend/src/infrastructure/database/index.ts`) wrapping `pg.Pool`. Parameterized SQL statements with positional parameters (`$1, $2`), explicit transaction helper (`withTransaction`), and raw SQL migration runner (`migrator.ts`). Query builders like Knex or ORMs are strictly prohibited.
@@ -41,29 +44,30 @@ The platform operates on a Modular Monolith architecture backed by PostgreSQL an
 
 The authoritative, canonical requirement IDs extracted directly from `docs/PHASE_0_3_REQUIREMENTS_SPECIFICATION.md`:
 
-| Requirement ID | Exact Requirement Statement | Priority | Phase 4 Responsibility | Cross-Phase / Future Responsibility | Evidence Source |
-|---|---|---|---|---|---|
-| **FR-SEARCH-001** | The system shall allow users to search packages by destination keyword or package title. | MUST | Tokenized text search and partial matching on package title, short description, destination city, and country. | None (Fully delivered in Phase 4) | `[DOCUMENTATION]` Synopsis L38, `frontend/index.html:37-40` |
-| **FR-SEARCH-002** | The system shall allow users to filter search results by Destination City, Travel Theme, Duration range, and Maximum Budget. | MUST | Parameterized multi-criteria SQL filtering across destination, theme, duration range, and maximum budget (minor units). | None (Fully delivered in Phase 4) | `[DOCUMENTATION]` Synopsis L38-39 |
-| **FR-SEARCH-003** | The system shall display a helpful empty state with reset suggestions when search criteria yield zero records. | MUST | Empty-state UI container with a single-click "Reset Filters" action. | None (Fully delivered in Phase 4) | `[INFERENCE]` UX Standard |
-| **FR-SEARCH-004** | The system shall support sorting search results by Price and Duration. | SHOULD | Safe allowlist-based sorting: `price_asc`, `price_desc`, `duration_asc`, `duration_desc`. | None (Fully delivered in Phase 4) | `[INFERENCE]` Sorting Standard |
-| **FR-INVENT-001** | The system shall maintain departure schedules for packages, associating specific calendar Departure Dates with a Total Seat Capacity and Booked Seat Count. | MUST | Relational `departure_schedules` table with date boundaries, total capacity, and confirmed booked seats. | None (Fully delivered in Phase 4) | `[DOCUMENTATION]` Document §1.3, §1.4 |
-| **FR-INVENT-002** | The system shall dynamically calculate Remaining Seat Capacity based on total capacity, confirmed bookings, and active temporary holds. | MUST | Real-time SQL availability computation aggregating unexpired active holds: $S_{\text{available}} = C_{\text{total}} - S_{\text{booked}} - S_{\text{held}}$. | None (Fully delivered in Phase 4) | `[INFERENCE]` BR-INVENT-001 |
-| **FR-INVENT-003** | The system shall prevent customers from initiating a booking for departure dates where Remaining Seat Capacity is less than the requested party size. | MUST | Capacity validation endpoint and pre-checkout availability gate. | None (Fully delivered in Phase 4) | `[DOCUMENTATION]` Document L149 |
-| **FR-INVENT-004** | The system shall place a temporary hold on requested seats for the configured checkout window duration when a customer initiates checkout. | MUST | **Design** `inventory_holds` schema in Phase 4. | **Execute** checkout hold creation in Phase 5. | `[PHASE-0.2]` Section 15 |
-| **FR-INVENT-005** | The system shall automatically release temporary seat holds back to available inventory if checkout payment is not verified within the configured hold window. | MUST | **Design** hold status and timestamp filters in Phase 4. | **Execute** BullMQ expiration cleaner in Phase 5. | `[PHASE-0.2]` Section 15 |
-| **FR-CONFIG-001** | The system shall allow customers on the package booking page to select a Departure Date, specify Number of Adults and Children, select an Accommodation Tier, and choose a Meal Plan. | MUST | Departure date selection UI and real-time departure inspection API. | Party configuration & booking submission in Phase 5. | `[DOCUMENTATION]` Synopsis L39-40 |
-| **FR-ADMIN-004** | The system shall allow administrators to manage departure dates, update seat capacities, and view passenger manifests per departure. | MUST | **Phase 4:** Admin departure CRUD, capacity management, and status updates under `ROLE_ADMIN`. | **Phase 5:** Passenger manifest retrieval linked to booking/passenger records. | `[DOCUMENTATION]` Synopsis L24, Document §6 |
-| **NFR-PERF-002** | **Search Query Latency:** The package search and filter query shall return matching results in less than 500 milliseconds across a catalog of up to 10,000 packages. | MUST | PostgreSQL composite B-tree & GIN trigram indexes, pagination limits. | None (Fully delivered in Phase 4) | `[DOCUMENTATION]` Synopsis L12 |
-| **NFR-REL-001** | **Zero Double-Bookings:** The system shall enforce atomic seat allocation to ensure that concurrent checkout attempts cannot result in confirmed bookings exceeding available inventory. | MUST | Row-level locking (`SELECT ... FOR UPDATE`) design and transactional boundary specifications. | Transactional hold creation in Phase 5. | `[DOCUMENTATION]` Core NFR |
-| **DR-006** | **Departure Schedule Domain Entity:** `departure_schedules` and `inventory_holds` schemas. | MUST | Relational database schema specification in Step 1. | Consumed in Phase 5. | `[DOCUMENTATION]` Data Architecture §4.6 |
+| Requirement ID    | Exact Requirement Statement                                                                                                                                                              | Priority | Phase 4 Responsibility                                                                                                                                      | Cross-Phase / Future Responsibility                                            | Evidence Source                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| **FR-SEARCH-001** | The system shall allow users to search packages by destination keyword or package title.                                                                                                 | MUST     | Tokenized text search and partial matching on package title, short description, destination city, and country.                                              | None (Fully delivered in Phase 4)                                              | `[DOCUMENTATION]` Synopsis L38, `frontend/index.html:37-40` |
+| **FR-SEARCH-002** | The system shall allow users to filter search results by Destination City, Travel Theme, Duration range, and Maximum Budget.                                                             | MUST     | Parameterized multi-criteria SQL filtering across destination, theme, duration range, and maximum budget (minor units).                                     | None (Fully delivered in Phase 4)                                              | `[DOCUMENTATION]` Synopsis L38-39                           |
+| **FR-SEARCH-003** | The system shall display a helpful empty state with reset suggestions when search criteria yield zero records.                                                                           | MUST     | Empty-state UI container with a single-click "Reset Filters" action.                                                                                        | None (Fully delivered in Phase 4)                                              | `[INFERENCE]` UX Standard                                   |
+| **FR-SEARCH-004** | The system shall support sorting search results by Price and Duration.                                                                                                                   | SHOULD   | Safe allowlist-based sorting: `price_asc`, `price_desc`, `duration_asc`, `duration_desc`.                                                                   | None (Fully delivered in Phase 4)                                              | `[INFERENCE]` Sorting Standard                              |
+| **FR-INVENT-001** | The system shall maintain departure schedules for packages, associating specific calendar Departure Dates with a Total Seat Capacity and Booked Seat Count.                              | MUST     | Relational `departure_schedules` table with date boundaries, total capacity, and confirmed booked seats.                                                    | None (Fully delivered in Phase 4)                                              | `[DOCUMENTATION]` Document §1.3, §1.4                       |
+| **FR-INVENT-002** | The system shall dynamically calculate Remaining Seat Capacity based on total capacity, confirmed bookings, and active temporary holds.                                                  | MUST     | Real-time SQL availability computation aggregating unexpired active holds: $S_{\text{available}} = C_{\text{total}} - S_{\text{booked}} - S_{\text{held}}$. | None (Fully delivered in Phase 4)                                              | `[INFERENCE]` BR-INVENT-001                                 |
+| **FR-INVENT-003** | The system shall prevent customers from initiating a booking for departure dates where Remaining Seat Capacity is less than the requested party size.                                    | MUST     | Capacity validation endpoint and pre-checkout availability gate.                                                                                            | None (Fully delivered in Phase 4)                                              | `[DOCUMENTATION]` Document L149                             |
+| **FR-INVENT-004** | The system shall place a temporary hold on requested seats for the configured checkout window duration when a customer initiates checkout.                                               | MUST     | **Design** `inventory_holds` schema in Phase 4.                                                                                                             | **Execute** checkout hold creation in Phase 5.                                 | `[PHASE-0.2]` Section 15                                    |
+| **FR-INVENT-005** | The system shall automatically release temporary seat holds back to available inventory if checkout payment is not verified within the configured hold window.                           | MUST     | **Design** hold status and timestamp filters in Phase 4.                                                                                                    | **Execute** BullMQ expiration cleaner in Phase 5.                              | `[PHASE-0.2]` Section 15                                    |
+| **FR-CONFIG-001** | The system shall allow customers on the package booking page to select a Departure Date, specify Number of Adults and Children, select an Accommodation Tier, and choose a Meal Plan.    | MUST     | Departure date selection UI and real-time departure inspection API.                                                                                         | Party configuration & booking submission in Phase 5.                           | `[DOCUMENTATION]` Synopsis L39-40                           |
+| **FR-ADMIN-004**  | The system shall allow administrators to manage departure dates, update seat capacities, and view passenger manifests per departure.                                                     | MUST     | **Phase 4:** Admin departure CRUD, capacity management, and status updates under `ROLE_ADMIN`.                                                              | **Phase 5:** Passenger manifest retrieval linked to booking/passenger records. | `[DOCUMENTATION]` Synopsis L24, Document §6                 |
+| **NFR-PERF-002**  | **Search Query Latency:** The package search and filter query shall return matching results in less than 500 milliseconds across a catalog of up to 10,000 packages.                     | MUST     | PostgreSQL composite B-tree & GIN trigram indexes, pagination limits.                                                                                       | None (Fully delivered in Phase 4)                                              | `[DOCUMENTATION]` Synopsis L12                              |
+| **NFR-REL-001**   | **Zero Double-Bookings:** The system shall enforce atomic seat allocation to ensure that concurrent checkout attempts cannot result in confirmed bookings exceeding available inventory. | MUST     | Row-level locking (`SELECT ... FOR UPDATE`) design and transactional boundary specifications.                                                               | Transactional hold creation in Phase 5.                                        | `[DOCUMENTATION]` Core NFR                                  |
+| **DR-006**        | **Departure Schedule Domain Entity:** `departure_schedules` and `inventory_holds` schemas.                                                                                               | MUST     | Relational database schema specification in Step 1.                                                                                                         | Consumed in Phase 5.                                                           | `[DOCUMENTATION]` Data Architecture §4.6                    |
 
 ---
 
 ## 4. Phase 3 Integration Baseline
 
 Phase 4 builds directly upon the frozen Phase 3 catalogue database schema and modules without altering any Phase 3 business logic:
-- `destinations` table (`id`, `slug`, `city_name`, `country`, `description`, `thumbnail_url`, `hero_image_url`, `is_featured`, `is_published`, `created_at`, `updated_at`). *(Note: Column is `city_name`, not `name`)*.
+
+- `destinations` table (`id`, `slug`, `city_name`, `country`, `description`, `thumbnail_url`, `hero_image_url`, `is_featured`, `is_published`, `created_at`, `updated_at`). _(Note: Column is `city_name`, not `name`)_.
 - `themes` table (`id`, `slug`, `title`, `description`, `icon_url`, `created_at`).
 - `tour_packages` table (`id`, `destination_id`, `theme_id`, `slug`, `title`, `short_description`, `description`, `duration_days`, `duration_nights`, `origin_city`, `destination_city`, `base_adult_price`, `base_child_price`, `currency`, `hero_image_url`, `gallery_urls`, `inclusions`, `exclusions`, `accommodation_tiers`, `meal_plans`, `is_published`, `is_featured`, `created_at`, `updated_at`).
 - `itinerary_days` table (`id`, `package_id`, `day_number`, `title`, `activity_description`, `meals_included`, `accommodation_notes`, `created_at`, `updated_at`).
@@ -74,9 +78,10 @@ Phase 4 builds directly upon the frozen Phase 3 catalogue database schema and mo
 ## 5. Phase 4 Business Objective & Scope
 
 ### In-Scope:
+
 1. **Keyword Search Engine (`FR-SEARCH-001`):** Search by package title, short description, destination city name, and country using PostgreSQL text search and trigram indexes.
-2. **Multi-Criteria Filter Engine (`FR-SEARCH-002`):** Canonical filtering by destination slug, theme slug, duration min/max days, and maximum budget (in minor units). *(Optional extensions: minimum price, departure date range, and `isFeatured`)*.
-3. **Deterministic Allowlisted Sorting (`FR-SEARCH-004`):** Canonical sorting by price (asc/desc) and duration (asc/desc), with deterministic secondary tie-breakers (`id ASC`). *(Optional extensions: `newest` and `featured`)*.
+2. **Multi-Criteria Filter Engine (`FR-SEARCH-002`):** Canonical filtering by destination slug, theme slug, duration min/max days, and maximum budget (in minor units). _(Optional extensions: minimum price, departure date range, and `isFeatured`)_.
+3. **Deterministic Allowlisted Sorting (`FR-SEARCH-004`):** Canonical sorting by price (asc/desc) and duration (asc/desc), with deterministic secondary tie-breakers (`id ASC`). _(Optional extensions: `newest` and `featured`)_.
 4. **Pagination Contract:** Standardized page, limit, offset pagination with metadata envelopes.
 5. **Operational Departure Management (`FR-INVENT-001`, `FR-ADMIN-004` Part 1):** Admin creation, updates, and status transitions for tour departures.
 6. **Real-Time Availability Computation (`FR-INVENT-002`):** Live computation of available seats ($C_{\text{total}} - S_{\text{booked}} - S_{\text{held}}$) without dual-write race conditions.
@@ -88,6 +93,7 @@ Phase 4 builds directly upon the frozen Phase 3 catalogue database schema and mo
 ## 6. Non-Goals (Strict Phase Boundaries)
 
 The following capabilities belong to subsequent phases and are **NOT** implemented in Phase 4:
+
 - ❌ **Booking State Machine & Booking Records:** Belongs to Phase 5 (`FR-BOOK-001` through `FR-BOOK-005`).
 - ❌ **Checkout Session & Hold Creation Execution:** Belongs to Phase 5 (`FR-INVENT-004`).
 - ❌ **Passenger Manifest Retrieval Endpoint:** Belongs to Phase 5 (`FR-ADMIN-004` Part 2), as passenger manifests depend on Phase 5 customer booking and passenger records.
@@ -103,13 +109,16 @@ The following capabilities belong to subsequent phases and are **NOT** implement
 ## 7. Search Architecture Design
 
 ### 7.1 Searchable Target Fields
+
 A keyword search query (`q` parameter) evaluates:
+
 1. `tour_packages.title` (Weight A)
 2. `tour_packages.short_description` (Weight B)
 3. `destinations.city_name` (Weight A)
 4. `destinations.country` (Weight B)
 
 ### 7.2 Matching Strategy
+
 - **Primary Matching:** PostgreSQL Full-Text Search using `to_tsvector('simple', ...)` and `plainto_tsquery('simple', ...)` across package textual fields.
 - **Secondary / Substring Matching:** Case-insensitive `ILIKE` and trigram similarity (`pg_trgm`) on destination `city_name` and `country`.
 - **Query Normalization:**
@@ -129,21 +138,22 @@ A keyword search query (`q` parameter) evaluates:
 
 ### 8.1 Canonical vs Extension Filters
 
-| Filter Parameter | Classification | Input Type | Validation Rule | Target SQL Field | Query Strategy | Default Behavior |
-|---|---|---|---|---|---|---|
-| `q` | Canonical (`FR-SEARCH-001`) | `string` | Min 2, max 100 chars | Title / Description / City / Country | FTS + Trigram ILIKE | Ignored if empty |
-| `destinationSlug` | Canonical (`FR-SEARCH-002`) | `string` | Alphanumeric kebab-case | `destinations.slug` | `JOIN destinations d ON tp.destination_id = d.id WHERE d.slug = $1` | All destinations |
-| `themeSlug` | Canonical (`FR-SEARCH-002`) | `string` | Alphanumeric kebab-case | `themes.slug` | `JOIN themes t ON tp.theme_id = t.id WHERE t.slug = $1` | All themes |
-| `minDuration` | Canonical (`FR-SEARCH-002`) | `integer` | Integer $\ge 1$ | `tour_packages.duration_days` | `tp.duration_days >= $1` | No minimum |
-| `maxDuration` | Canonical (`FR-SEARCH-002`) | `integer` | Integer $\ge$ `minDuration` | `tour_packages.duration_days` | `tp.duration_days <= $1` | No maximum |
-| `maxPrice` | Canonical (`FR-SEARCH-002` Max Budget) | `integer` | Integer $\ge 0$ (minor units)| `tour_packages.base_adult_price` | `tp.base_adult_price <= $1` | No maximum |
-| `minPrice` | Optional Extension (`DEC-4-007`) | `integer` | Integer $\ge 0$, $\le$ `maxPrice` | `tour_packages.base_adult_price` | `tp.base_adult_price >= $1` | No minimum |
-| `currency` | Optional Extension (`DEC-4-007`) | `enum` | `'INR'` or `'USD'` | `tour_packages.currency` | `tp.currency = $1` | Default `'INR'` |
-| `departureDateFrom` | Optional Extension (`DEC-4-007`) | `string (ISO Date)`| `YYYY-MM-DD` | `departure_schedules.departure_date` | `EXISTS (SELECT 1 FROM departure_schedules ds WHERE ds.package_id = tp.id AND ds.departure_date >= $1 AND ds.status = 'OPEN')` | All future dates |
-| `departureDateTo` | Optional Extension (`DEC-4-007`) | `string (ISO Date)`| `YYYY-MM-DD` | `departure_schedules.departure_date` | `EXISTS (SELECT 1 FROM departure_schedules ds WHERE ds.package_id = tp.id AND ds.departure_date <= $1 AND ds.status = 'OPEN')` | All future dates |
-| `isFeatured` | Optional Extension (`DEC-4-007`) | `boolean` | `true \| false` | `tour_packages.is_featured` | `tp.is_featured = $1` | All packages |
+| Filter Parameter    | Classification                         | Input Type          | Validation Rule                   | Target SQL Field                     | Query Strategy                                                                                                                 | Default Behavior |
+| ------------------- | -------------------------------------- | ------------------- | --------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| `q`                 | Canonical (`FR-SEARCH-001`)            | `string`            | Min 2, max 100 chars              | Title / Description / City / Country | FTS + Trigram ILIKE                                                                                                            | Ignored if empty |
+| `destinationSlug`   | Canonical (`FR-SEARCH-002`)            | `string`            | Alphanumeric kebab-case           | `destinations.slug`                  | `JOIN destinations d ON tp.destination_id = d.id WHERE d.slug = $1`                                                            | All destinations |
+| `themeSlug`         | Canonical (`FR-SEARCH-002`)            | `string`            | Alphanumeric kebab-case           | `themes.slug`                        | `JOIN themes t ON tp.theme_id = t.id WHERE t.slug = $1`                                                                        | All themes       |
+| `minDuration`       | Canonical (`FR-SEARCH-002`)            | `integer`           | Integer $\ge 1$                   | `tour_packages.duration_days`        | `tp.duration_days >= $1`                                                                                                       | No minimum       |
+| `maxDuration`       | Canonical (`FR-SEARCH-002`)            | `integer`           | Integer $\ge$ `minDuration`       | `tour_packages.duration_days`        | `tp.duration_days <= $1`                                                                                                       | No maximum       |
+| `maxPrice`          | Canonical (`FR-SEARCH-002` Max Budget) | `integer`           | Integer $\ge 0$ (minor units)     | `tour_packages.base_adult_price`     | `tp.base_adult_price <= $1`                                                                                                    | No maximum       |
+| `minPrice`          | Optional Extension (`DEC-4-007`)       | `integer`           | Integer $\ge 0$, $\le$ `maxPrice` | `tour_packages.base_adult_price`     | `tp.base_adult_price >= $1`                                                                                                    | No minimum       |
+| `currency`          | Optional Extension (`DEC-4-007`)       | `enum`              | `'INR'` or `'USD'`                | `tour_packages.currency`             | `tp.currency = $1`                                                                                                             | Default `'INR'`  |
+| `departureDateFrom` | Optional Extension (`DEC-4-007`)       | `string (ISO Date)` | `YYYY-MM-DD`                      | `departure_schedules.departure_date` | `EXISTS (SELECT 1 FROM departure_schedules ds WHERE ds.package_id = tp.id AND ds.departure_date >= $1 AND ds.status = 'OPEN')` | All future dates |
+| `departureDateTo`   | Optional Extension (`DEC-4-007`)       | `string (ISO Date)` | `YYYY-MM-DD`                      | `departure_schedules.departure_date` | `EXISTS (SELECT 1 FROM departure_schedules ds WHERE ds.package_id = tp.id AND ds.departure_date <= $1 AND ds.status = 'OPEN')` | All future dates |
+| `isFeatured`        | Optional Extension (`DEC-4-007`)       | `boolean`           | `true \| false`                   | `tour_packages.is_featured`          | `tp.is_featured = $1`                                                                                                          | All packages     |
 
 ### 8.2 Combination Semantics
+
 - All active filters are joined with **Boolean `AND`**.
 - Multi-select within the same category (e.g. comma-separated theme slugs) utilizes **Boolean `IN (...)`**.
 - If no filters are provided, all published packages are returned in paginated order.
@@ -156,16 +166,17 @@ A keyword search query (`q` parameter) evaluates:
 
 Canonical `FR-SEARCH-004` requires sorting by **Price** and **Duration**. Additional sort options (`newest`, `featured`) are retained as optional implementation extensions (`DEC-4-006`):
 
-| Sort Key Parameter | Scope Classification | Primary SQL ORDER BY Clause | Secondary Deterministic Tie-Breaker |
-|---|---|---|---|
-| `price_asc` | **Canonical (`FR-SEARCH-004`)** | `tp.base_adult_price ASC` | `tp.created_at DESC, tp.id ASC` |
-| `price_desc` | **Canonical (`FR-SEARCH-004`)** | `tp.base_adult_price DESC` | `tp.created_at DESC, tp.id ASC` |
-| `duration_asc` | **Canonical (`FR-SEARCH-004`)** | `tp.duration_days ASC` | `tp.created_at DESC, tp.id ASC` |
-| `duration_desc` | **Canonical (`FR-SEARCH-004`)** | `tp.duration_days DESC` | `tp.created_at DESC, tp.id ASC` |
-| `newest` | Optional Extension (`DEC-4-006`) | `tp.created_at DESC` | `tp.id ASC` |
-| `featured` | Optional Extension (`DEC-4-006` Default)| `tp.is_featured DESC, tp.created_at DESC` | `tp.id ASC` |
+| Sort Key Parameter | Scope Classification                     | Primary SQL ORDER BY Clause               | Secondary Deterministic Tie-Breaker |
+| ------------------ | ---------------------------------------- | ----------------------------------------- | ----------------------------------- |
+| `price_asc`        | **Canonical (`FR-SEARCH-004`)**          | `tp.base_adult_price ASC`                 | `tp.created_at DESC, tp.id ASC`     |
+| `price_desc`       | **Canonical (`FR-SEARCH-004`)**          | `tp.base_adult_price DESC`                | `tp.created_at DESC, tp.id ASC`     |
+| `duration_asc`     | **Canonical (`FR-SEARCH-004`)**          | `tp.duration_days ASC`                    | `tp.created_at DESC, tp.id ASC`     |
+| `duration_desc`    | **Canonical (`FR-SEARCH-004`)**          | `tp.duration_days DESC`                   | `tp.created_at DESC, tp.id ASC`     |
+| `newest`           | Optional Extension (`DEC-4-006`)         | `tp.created_at DESC`                      | `tp.id ASC`                         |
+| `featured`         | Optional Extension (`DEC-4-006` Default) | `tp.is_featured DESC, tp.created_at DESC` | `tp.id ASC`                         |
 
 ### 9.2 Security & Determinism
+
 - User-supplied sort parameters are strictly validated against the allowlist enum in Zod.
 - Unrecognized sort parameters default safely to `featured`.
 - Raw strings are **never** interpolated into SQL `ORDER BY` identifiers.
@@ -176,6 +187,7 @@ Canonical `FR-SEARCH-004` requires sorting by **Price** and **Duration**. Additi
 ## 10. Pagination Strategy
 
 Reuses the Phase 3 canonical pagination contract:
+
 - `page` (default: 1, minimum: 1)
 - `limit` (default: 12, minimum: 1, maximum: 50)
 - `offset = (page - 1) * limit`
@@ -196,13 +208,16 @@ Reuses the Phase 3 canonical pagination contract:
 ## 11. Departure Model & Status Lifecycle
 
 ### 11.1 Canonical Departure Lifecycle (`DepartureStatus`)
+
 Stored as a PostgreSQL enum column `departure_schedules.status`:
+
 - `OPEN`: Departure is scheduled, active, and open for customer booking.
 - `CLOSED`: Departure is closed to further bookings (manually by admin or because departure booking cutoff date has passed).
 - `CANCELLED`: Departure has been cancelled by the operator (triggers booking cancellations/refunds in Phase 5).
 - `COMPLETED`: Tour departure date has elapsed and the tour is finished.
 
 ### 11.2 State Transition Invariants
+
 ```
                ┌──────────────┐
                │     OPEN     │ ◄─── (Created by Admin)
@@ -220,6 +235,7 @@ Stored as a PostgreSQL enum column `departure_schedules.status`:
     │   OPEN   │
     └──────────┘
 ```
+
 - A departure can transition from `OPEN` to `CLOSED` or `CANCELLED`.
 - A departure in `CLOSED` state can be reopened to `OPEN` by an admin if the departure date is still in the future.
 - A departure in `CANCELLED` or `COMPLETED` state cannot be transitioned back to `OPEN`.
@@ -229,22 +245,27 @@ Stored as a PostgreSQL enum column `departure_schedules.status`:
 ## 12. Availability Model & Calculation
 
 ### 12.1 Authoritative Mathematical Formula
+
 For any departure schedule $d$:
 $$S_{\text{available}} = \max\left(0, \; C_{\text{total}} - \left(S_{\text{booked}} + S_{\text{held}}\right)\right)$$
 
 Where:
+
 - $C_{\text{total}}$: `departure_schedules.total_seat_capacity` (Total physical seats).
 - $S_{\text{booked}}$: `departure_schedules.booked_seats` (Confirmed/paid seats).
 - $S_{\text{held}}$: Dynamic sum of active, unexpired holds from `inventory_holds`:
   $$\sum_{\substack{\text{status} = \text{'ACTIVE'} \\ \text{expires\_at} > \text{NOW()}}} \text{held\_seats}$$
 
 ### 12.2 Structural Separation of Holds & Departures
+
 - **`departure_schedules` does NOT store a mutable `held_seats` column.**
 - `inventory_holds` is the single authoritative ledger for temporary holds.
 - This eliminates dual-write race conditions, drift, and hold double-counting.
 
 ### 12.3 Computed Availability Status Taxonomy (`AvailabilityStatus`)
+
 Computed dynamically in memory / API responses (never stored as a table column):
+
 - `AVAILABLE`: `DepartureStatus === 'OPEN'` AND $S_{\text{available}} \ge 5$.
 - `FEW_SEATS_LEFT`: `DepartureStatus === 'OPEN'` AND $1 \le S_{\text{available}} < 5$ (UI renders urgency badge).
 - `SOLD_OUT`: `DepartureStatus === 'OPEN'` AND $S_{\text{available}} = 0$.
@@ -256,11 +277,14 @@ Computed dynamically in memory / API responses (never stored as a table column):
 ## 13. Inventory Authority & Concurrency Model
 
 ### 13.1 PostgreSQL as Authoritative Source of Truth
+
 - PostgreSQL is the sole authoritative source of truth for seat capacity, bookings, and holds.
 - Redis serves strictly as an operational cache and async worker queue; Redis is **never** the authority for inventory state.
 
 ### 13.2 Atomic Reservation Invariant (`NFR-REL-001`)
+
 To prevent overbooking under high concurrency, seat reservation follows this strict transaction flow:
+
 1. `BEGIN TRANSACTION;`
 2. Acquire exclusive row-level lock on the departure:
    ```sql
@@ -285,19 +309,20 @@ To prevent overbooking under high concurrency, seat reservation follows this str
 
 ## 14. Temporary Hold Boundary (Phase 4 vs Phase 5)
 
-| Responsibility | Phase 4 (Current) | Phase 5 (Booking Engine) |
-|---|---|---|
-| **Data Schema** | Create `inventory_holds` table & indexes | Consume existing table |
-| **Availability Calculation** | Query active unexpired holds in $S_{\text{available}}$ | Rely on Phase 4 calculation engine |
-| **Hold Creation** | Define DTOs & Repository interfaces | Instantiate 15-min hold on checkout start (`FR-INVENT-004`) |
-| **Hold Expiration Worker** | Specify status & timestamp criteria | Execute BullMQ delayed job cleaner (`FR-INVENT-005`) |
-| **Hold Conversion** | None | Transition hold to `COMMITTED` on payment |
+| Responsibility               | Phase 4 (Current)                                      | Phase 5 (Booking Engine)                                    |
+| ---------------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
+| **Data Schema**              | Create `inventory_holds` table & indexes               | Consume existing table                                      |
+| **Availability Calculation** | Query active unexpired holds in $S_{\text{available}}$ | Rely on Phase 4 calculation engine                          |
+| **Hold Creation**            | Define DTOs & Repository interfaces                    | Instantiate 15-min hold on checkout start (`FR-INVENT-004`) |
+| **Hold Expiration Worker**   | Specify status & timestamp criteria                    | Execute BullMQ delayed job cleaner (`FR-INVENT-005`)        |
+| **Hold Conversion**          | None                                                   | Transition hold to `COMMITTED` on payment                   |
 
 ---
 
 ## 15. Price Overrides Model: Canonical Requirement vs Optional Extension
 
 Phase 0 `DR-006` in `docs/PHASE_0_4_6_DATA_ARCHITECTURE.md` defines `departure_schedules` attributes:
+
 - `id` (UUIDv4)
 - `package_id` (FK)
 - `departure_date` (Date)
@@ -310,11 +335,13 @@ Phase 0 `DR-006` in `docs/PHASE_0_4_6_DATA_ARCHITECTURE.md` defines `departure_s
 Phase 0 `FR-CONFIG-002` calculates itemized real-time pricing from package base prices (`tour_packages.base_adult_price` and `base_child_price`).
 
 Therefore, departure-level price overrides (`price_override_adult`, `price_override_child`) are **NOT** mandatory Phase 0 requirements. They are classified as an **[OPTIONAL ARCHITECTURAL EXTENSION DEC-4-008]** to support future seasonal surge pricing without breaking package base pricing:
+
 - `price_override_adult` (`BIGINT`, nullable minor units)
 - `price_override_child` (`BIGINT`, nullable minor units)
 - `currency` (`VARCHAR(3)`, matches package currency)
 
 **Pricing Resolution Rule:**
+
 - If `price_override_adult` is `NOT NULL`, departure adult price = `price_override_adult`. Otherwise fallback to `tour_packages.base_adult_price`.
 - If `price_override_child` is `NOT NULL`, departure child price = `price_override_child`. Otherwise fallback to `tour_packages.base_child_price`.
 
@@ -387,6 +414,7 @@ CREATE INDEX IF NOT EXISTS idx_destinations_country_trgm ON destinations USING g
 ## 17. Shared Contract Proposal (Step 2 Plan)
 
 ### Proposed Enums & Types (`shared/src/types/inventory.ts`):
+
 - `DepartureStatus`: `'OPEN' | 'CLOSED' | 'CANCELLED' | 'COMPLETED'`
 - `AvailabilityStatus`: `'AVAILABLE' | 'FEW_SEATS_LEFT' | 'SOLD_OUT' | 'CLOSED' | 'CANCELLED'`
 - `PackageSortOption`: `'price_asc' | 'price_desc' | 'duration_asc' | 'duration_desc' | 'newest' | 'featured'`
@@ -396,6 +424,7 @@ CREATE INDEX IF NOT EXISTS idx_destinations_country_trgm ON destinations USING g
 - `PackageSearchResultDto`: Paginated search results with next available departure metadata.
 
 ### Proposed Zod Schemas (`shared/src/schemas/inventory.schema.ts`):
+
 - `PackageSearchQuerySchema`: Validates `q`, `destinationSlug`, `themeSlug`, `minDuration`, `maxDuration`, `minPrice`, `maxPrice`, `currency`, `departureDateFrom`, `departureDateTo`, `isFeatured`, `sortBy`, `page`, `limit`.
 - `CreateDepartureSchema`: Validates admin departure creation payload.
 - `UpdateDepartureSchema`: Validates admin departure update payload.
@@ -406,6 +435,7 @@ CREATE INDEX IF NOT EXISTS idx_destinations_country_trgm ON destinations USING g
 ## 18. Repository Plan (Step 3 Plan)
 
 All repositories directly use `DatabaseService` (`this.db.query`, `this.db.withTransaction`):
+
 1. **`DepartureRepository`:**
    - `create(data: CreateDepartureData, client?: PoolClient): Promise<DepartureEntity>`
    - `findById(id: string, client?: PoolClient): Promise<DepartureEntity | null>`
@@ -442,6 +472,7 @@ All repositories directly use `DatabaseService` (`this.db.query`, `this.db.withT
 ## 20. API Design (Step 5 Plan)
 
 ### Public REST Endpoints:
+
 1. `GET /api/v1/packages/search`
    - Description: Search and filter tour packages with pagination and sorting.
    - Auth: Public (No token required).
@@ -458,6 +489,7 @@ All repositories directly use `DatabaseService` (`this.db.query`, `this.db.withT
    - Response: `SuccessResponse<DepartureAvailabilityDto>`.
 
 ### Admin REST Endpoints (`role === 'ADMIN'`):
+
 1. `GET /api/v1/admin/packages/:packageId/departures`
    - Description: List all departures (including closed/past) for a package.
    - Auth: `ROLE_ADMIN` required.
@@ -481,6 +513,7 @@ All repositories directly use `DatabaseService` (`this.db.query`, `this.db.withT
 ## 21. Frontend Integration Plan (Step 6 Plan)
 
 Modifications integrate into existing Vanilla JS components in `frontend/src/`:
+
 1. **`frontend/src/components/catalogueSection.js`:**
    - Connect hero and header search inputs to debounced `/api/v1/packages/search` queries.
    - Render multi-criteria filter controls (Destination dropdown, Theme chips, Price range inputs, Duration selector, Departure date picker).
@@ -511,15 +544,15 @@ Modifications integrate into existing Vanilla JS components in `frontend/src/`:
 
 ## 23. Security Threat Model & Mitigations
 
-| Threat | Attack Surface | Mitigation Strategy | Phase Owner |
-|---|---|---|---|
-| **SQL Injection** | Search query `q` and filter parameters | Parameterized SQL queries `$1, $2` via `DatabaseService`; Zod string validation | Phase 4 Step 3/5 |
-| **SQL Injection via Sorting** | `sortBy` parameter | Strict allowlist mapping in repository; raw strings never interpolated | Phase 4 Step 3 |
-| **Overbooking Race Condition** | Concurrent checkout requests | Pessimistic locking (`SELECT ... FOR UPDATE`) in PostgreSQL transaction | Phase 4 & Phase 5 |
-| **Negative Inventory Injection** | Capacity update parameters | Database `CHECK (total_seat_capacity > 0)` + Zod positive integer validation | Phase 4 Step 1/2 |
-| **IDOR on Departure Admin** | Admin departure endpoints | RS256 JWT Authentication + Fastify `ADMIN` RBAC guard | Phase 4 Step 5 |
-| **Unpublished Package Leak** | Search and departure queries | Enforce `tour_packages.is_published = TRUE AND destinations.is_published = TRUE` | Phase 4 Step 3/4 |
-| **Past Date Booking Tampering** | Departure creation/selection | Database constraint `chk_departure_return_dates` + Service validation `departure_date >= CURRENT_DATE` | Phase 4 Step 1/4 |
+| Threat                           | Attack Surface                         | Mitigation Strategy                                                                                    | Phase Owner       |
+| -------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------- |
+| **SQL Injection**                | Search query `q` and filter parameters | Parameterized SQL queries `$1, $2` via `DatabaseService`; Zod string validation                        | Phase 4 Step 3/5  |
+| **SQL Injection via Sorting**    | `sortBy` parameter                     | Strict allowlist mapping in repository; raw strings never interpolated                                 | Phase 4 Step 3    |
+| **Overbooking Race Condition**   | Concurrent checkout requests           | Pessimistic locking (`SELECT ... FOR UPDATE`) in PostgreSQL transaction                                | Phase 4 & Phase 5 |
+| **Negative Inventory Injection** | Capacity update parameters             | Database `CHECK (total_seat_capacity > 0)` + Zod positive integer validation                           | Phase 4 Step 1/2  |
+| **IDOR on Departure Admin**      | Admin departure endpoints              | RS256 JWT Authentication + Fastify `ADMIN` RBAC guard                                                  | Phase 4 Step 5    |
+| **Unpublished Package Leak**     | Search and departure queries           | Enforce `tour_packages.is_published = TRUE AND destinations.is_published = TRUE`                       | Phase 4 Step 3/4  |
+| **Past Date Booking Tampering**  | Departure creation/selection           | Database constraint `chk_departure_return_dates` + Service validation `departure_date >= CURRENT_DATE` | Phase 4 Step 1/4  |
 
 ---
 
@@ -560,14 +593,14 @@ Modifications integrate into existing Vanilla JS components in `frontend/src/`:
 
 ## 26. Phase 4 $\to$ Phase 5 Boundary
 
-| Domain | Phase 4 (Discovery & Availability) | Phase 5 (Booking Engine) |
-|---|---|---|
-| **Discovery & Search** | Keyword FTS, multi-criteria filters, allowlisted sorting | None |
-| **Departures** | Admin departure scheduling, capacity limits, date validation | Read departure schedules |
-| **Availability** | Dynamic computation: $S_{\text{available}} = C_{\text{total}} - S_{\text{booked}} - S_{\text{held}}$ | Real-time seat reservation & hold decrement |
-| **Temporary Holds** | Schema definition in migration `003`, active hold query integration | Checkout session token generation, 15-min hold insertion, BullMQ hold expiry cleaner |
-| **Booking & Roster** | None | Booking state machine, customer booking records, passenger rosters |
-| **Passenger Manifests** | None | Manifest retrieval (`GET /api/v1/admin/departures/:id/manifest`) linked to booking records (`FR-ADMIN-004` Part 2) |
+| Domain                  | Phase 4 (Discovery & Availability)                                                                   | Phase 5 (Booking Engine)                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Discovery & Search**  | Keyword FTS, multi-criteria filters, allowlisted sorting                                             | None                                                                                                               |
+| **Departures**          | Admin departure scheduling, capacity limits, date validation                                         | Read departure schedules                                                                                           |
+| **Availability**        | Dynamic computation: $S_{\text{available}} = C_{\text{total}} - S_{\text{booked}} - S_{\text{held}}$ | Real-time seat reservation & hold decrement                                                                        |
+| **Temporary Holds**     | Schema definition in migration `003`, active hold query integration                                  | Checkout session token generation, 15-min hold insertion, BullMQ hold expiry cleaner                               |
+| **Booking & Roster**    | None                                                                                                 | Booking state machine, customer booking records, passenger rosters                                                 |
+| **Passenger Manifests** | None                                                                                                 | Manifest retrieval (`GET /api/v1/admin/departures/:id/manifest`) linked to booking records (`FR-ADMIN-004` Part 2) |
 
 ---
 
@@ -580,56 +613,57 @@ Modifications integrate into existing Vanilla JS components in `frontend/src/`:
 
 ## 28. Traceability Matrix
 
-| Requirement ID | Canonical Business Rule | Phase 4 Responsibility | Future Phase Responsibility | Component / Layer | Future Test Target | Evidence Source |
-|---|---|---|---|---|---|---|
-| `FR-SEARCH-001` | BR-SEARCH-001 | Search packages by keyword / title / destination | None | `PackageSearchRepository`, `PackageSearchService` | Keyword FTS & trigram test suite | Synopsis L38 |
-| `FR-SEARCH-002` | BR-SEARCH-002 | Multi-criteria filtering by Destination City, Travel Theme, Duration range, and Maximum Budget | None | `PackageSearchRepository` | Multi-filter combinatorics tests | Synopsis L38-39 |
-| `FR-SEARCH-003` | BR-SEARCH-003 | Zero-results empty state with reset suggestions | None | `catalogueSection.js` | UI empty-state rendering test | UX Standard |
-| `FR-SEARCH-004` | BR-SEARCH-004 | Allowlist-based sorting by Price and Duration | None | `PackageSearchRepository` | Sort allowlist order tests (Price & Duration) | Sorting Standard |
-| `FR-INVENT-001` | BR-INVENT-001 | Maintain package departure schedules with seat capacity | None | `departure_schedules`, `DepartureRepository` | Departure persistence test suite | Document §1.3, §1.4 |
-| `FR-INVENT-002` | BR-INVENT-002 | Dynamically calculate remaining seat capacity | None | `AvailabilityService`, `inventory_holds` | Remaining capacity calculation tests | BR-INVENT-001 |
-| `FR-INVENT-003` | BR-INVENT-003 | Prevent booking initiation when remaining capacity < party size | None | `AvailabilityService.validateAvailability` | Party capacity rejection tests | Document L149 |
-| `FR-INVENT-004` | BR-INVENT-002 | Design 15-minute temporary hold ledger schema | Execute checkout hold creation on session start | `inventory_holds` table (Step 1) | Hold schema constraint tests | Phase 0.2 §15 |
-| `FR-INVENT-005` | BR-INVENT-002 | Hold status & timestamp expiration query integration | Execute BullMQ 15-minute hold sweeper worker | `InventoryHoldRepository` | Unexpired hold aggregation tests | Phase 0.2 §15 |
-| `FR-CONFIG-001` | BR-CONFIG-001 | Select Departure Date on package booking UI | Capture party adult/child counts & accommodation tiers | `packageDetailModal.js` | Departure calendar selector tests | Synopsis L39-40 |
-| `FR-ADMIN-004` | BR-ADMIN-001 | Manage departure dates and update seat capacities | View passenger manifests per departure (linked to booking records) | `AdminDepartureController` | Admin RBAC & CRUD test suite | Synopsis L24, Doc §6 |
-| `NFR-PERF-002` | NFR-PERF-002 | Search latency < 500ms at 10,000 packages | None | Trigram & B-Tree Indexes | Query execution benchmark | Synopsis L12 |
-| `NFR-REL-001` | NFR-REL-001 | 0% double-booking under concurrency | Enforce atomic seat deduction in checkout flow | Pessimistic locking `SELECT FOR UPDATE` | Concurrent stress test suite | NFR-REL-001 |
-| `DR-006` | DR-006 | Relational schema for departures & holds | Consumed during booking creation | Migration `003` | Migration schema verification | Data Arch §4.6 |
+| Requirement ID  | Canonical Business Rule | Phase 4 Responsibility                                                                         | Future Phase Responsibility                                        | Component / Layer                                 | Future Test Target                            | Evidence Source      |
+| --------------- | ----------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------- | --------------------------------------------- | -------------------- |
+| `FR-SEARCH-001` | BR-SEARCH-001           | Search packages by keyword / title / destination                                               | None                                                               | `PackageSearchRepository`, `PackageSearchService` | Keyword FTS & trigram test suite              | Synopsis L38         |
+| `FR-SEARCH-002` | BR-SEARCH-002           | Multi-criteria filtering by Destination City, Travel Theme, Duration range, and Maximum Budget | None                                                               | `PackageSearchRepository`                         | Multi-filter combinatorics tests              | Synopsis L38-39      |
+| `FR-SEARCH-003` | BR-SEARCH-003           | Zero-results empty state with reset suggestions                                                | None                                                               | `catalogueSection.js`                             | UI empty-state rendering test                 | UX Standard          |
+| `FR-SEARCH-004` | BR-SEARCH-004           | Allowlist-based sorting by Price and Duration                                                  | None                                                               | `PackageSearchRepository`                         | Sort allowlist order tests (Price & Duration) | Sorting Standard     |
+| `FR-INVENT-001` | BR-INVENT-001           | Maintain package departure schedules with seat capacity                                        | None                                                               | `departure_schedules`, `DepartureRepository`      | Departure persistence test suite              | Document §1.3, §1.4  |
+| `FR-INVENT-002` | BR-INVENT-002           | Dynamically calculate remaining seat capacity                                                  | None                                                               | `AvailabilityService`, `inventory_holds`          | Remaining capacity calculation tests          | BR-INVENT-001        |
+| `FR-INVENT-003` | BR-INVENT-003           | Prevent booking initiation when remaining capacity < party size                                | None                                                               | `AvailabilityService.validateAvailability`        | Party capacity rejection tests                | Document L149        |
+| `FR-INVENT-004` | BR-INVENT-002           | Design 15-minute temporary hold ledger schema                                                  | Execute checkout hold creation on session start                    | `inventory_holds` table (Step 1)                  | Hold schema constraint tests                  | Phase 0.2 §15        |
+| `FR-INVENT-005` | BR-INVENT-002           | Hold status & timestamp expiration query integration                                           | Execute BullMQ 15-minute hold sweeper worker                       | `InventoryHoldRepository`                         | Unexpired hold aggregation tests              | Phase 0.2 §15        |
+| `FR-CONFIG-001` | BR-CONFIG-001           | Select Departure Date on package booking UI                                                    | Capture party adult/child counts & accommodation tiers             | `packageDetailModal.js`                           | Departure calendar selector tests             | Synopsis L39-40      |
+| `FR-ADMIN-004`  | BR-ADMIN-001            | Manage departure dates and update seat capacities                                              | View passenger manifests per departure (linked to booking records) | `AdminDepartureController`                        | Admin RBAC & CRUD test suite                  | Synopsis L24, Doc §6 |
+| `NFR-PERF-002`  | NFR-PERF-002            | Search latency < 500ms at 10,000 packages                                                      | None                                                               | Trigram & B-Tree Indexes                          | Query execution benchmark                     | Synopsis L12         |
+| `NFR-REL-001`   | NFR-REL-001             | 0% double-booking under concurrency                                                            | Enforce atomic seat deduction in checkout flow                     | Pessimistic locking `SELECT FOR UPDATE`           | Concurrent stress test suite                  | NFR-REL-001          |
+| `DR-006`        | DR-006                  | Relational schema for departures & holds                                                       | Consumed during booking creation                                   | Migration `003`                                   | Migration schema verification                 | Data Arch §4.6       |
 
 ---
 
 ## 29. Risk Register
 
-| Risk ID | Risk Description | Probability | Impact | Mitigation Strategy | Owner / Phase |
-|---|---|---|---|---|---|
-| **RSK-4-001** | Slow search performance on large text queries | Low | Medium | GIN Trigram indexes + Window function single-pass pagination | Phase 4 Step 1/3 |
-| **RSK-4-002** | Double booking under high concurrency | Medium | Critical | Pessimistic locking `SELECT ... FOR UPDATE` + DB capacity check constraint | Phase 4 & Phase 5 |
-| **RSK-4-003** | Timezone mismatch on departure dates | Medium | Medium | Store dates strictly as SQL `DATE` (`YYYY-MM-DD`) without UTC offset drift | Phase 4 Step 1/2 |
-| **RSK-4-004** | Dual-write drift between departures and holds | Low | High | `held_seats` is NOT persisted in departures; dynamically calculated from holds ledger | Phase 4 Step 1/3 |
-| **RSK-4-005** | Unpublished package visible via departure API | Low | High | Enforce package publication check in `DepartureService` | Phase 4 Step 4/5 |
+| Risk ID       | Risk Description                              | Probability | Impact   | Mitigation Strategy                                                                   | Owner / Phase     |
+| ------------- | --------------------------------------------- | ----------- | -------- | ------------------------------------------------------------------------------------- | ----------------- |
+| **RSK-4-001** | Slow search performance on large text queries | Low         | Medium   | GIN Trigram indexes + Window function single-pass pagination                          | Phase 4 Step 1/3  |
+| **RSK-4-002** | Double booking under high concurrency         | Medium      | Critical | Pessimistic locking `SELECT ... FOR UPDATE` + DB capacity check constraint            | Phase 4 & Phase 5 |
+| **RSK-4-003** | Timezone mismatch on departure dates          | Medium      | Medium   | Store dates strictly as SQL `DATE` (`YYYY-MM-DD`) without UTC offset drift            | Phase 4 Step 1/2  |
+| **RSK-4-004** | Dual-write drift between departures and holds | Low         | High     | `held_seats` is NOT persisted in departures; dynamically calculated from holds ledger | Phase 4 Step 1/3  |
+| **RSK-4-005** | Unpublished package visible via departure API | Low         | High     | Enforce package publication check in `DepartureService`                               | Phase 4 Step 4/5  |
 
 ---
 
 ## 30. Decision Register
 
-| Decision ID | Question / Topic | Decision | Rationale | Affected Layers | Phase Ownership |
-|---|---|---|---|---|---|
-| **DEC-4-001** | Search Engine Implementation | PostgreSQL native FTS + Trigram GIN indexes (`pg_trgm`) | Fully satisfies $<500\text{ms}$ latency requirement without introducing external search cluster dependencies | Database, Repository | Phase 4 |
-| **DEC-4-002** | Departure Date Storage Format | SQL `DATE` (`YYYY-MM-DD`) | Departures are whole-day calendar events; eliminates timezone conversion errors between client and server | Database, Contracts | Phase 4 |
-| **DEC-4-003** | Inventory Authority & Hold Storage | PostgreSQL ACID single source of truth; dynamic hold aggregation | Eliminates dual-write anomalies; guarantees zero double-booking (`NFR-REL-001`) | Database, Repositories | Phase 4 & Phase 5 |
-| **DEC-4-004** | Temporary Hold Execution Boundary | Schema & query design in Phase 4; checkout creation & BullMQ worker in Phase 5 | Preserves clean phase boundaries between catalogue discovery (Phase 4) and booking lifecycle (Phase 5) | Services, Jobs | Phase 4 & Phase 5 |
-| **DEC-4-005** | Departure Status vs Availability Status | Decouple operational `DepartureStatus` (`OPEN`, `CLOSED`, `CANCELLED`, `COMPLETED`) from derived `AvailabilityStatus` (`AVAILABLE`, `FEW_SEATS_LEFT`, `SOLD_OUT`) | Separates operator administrative lifecycle from dynamic consumer UI badges | Database, Shared Contracts | Phase 4 |
-| **DEC-4-006** | Extended Sorting Modes (`newest`, `featured`) | [DECISION] Optional implementation extensions for catalogue browsing convenience | Canonical `FR-SEARCH-004` requires Price and Duration sorting only. `newest` and `featured` are added as non-breaking convenience options | Repository, Contracts | Phase 4 |
-| **DEC-4-007** | Filter Extensions (`isFeatured`, `minPrice`, `departureDate`) | [DECISION] Optional implementation extensions for storefront discovery | Canonical `FR-SEARCH-002` specifies Destination, Theme, Duration, and Maximum Budget. Extended filters enhance discovery without violating canonical scope | Repository, Contracts, UI | Phase 4 |
-| **DEC-4-008** | Departure Price Overrides | [DECISION] Optional architectural extension for seasonal pricing elasticity | Phase 0 `DR-006` and `FR-CONFIG-002` do not mandate departure-level overrides. Schema supports optional nullable overrides with fallback to package base prices | Database, Services | Phase 4 |
-| **DEC-4-009** | `FR-ADMIN-004` Manifest Ownership | [DECISION] Split ownership: Departure CRUD in Phase 4; Passenger Manifests in Phase 5 | Passenger manifests depend on Phase 5 booking and passenger records. Phase 4 cannot retrieve manifests before booking data structures exist | Admin APIs, Services | Phase 4 & Phase 5 |
+| Decision ID   | Question / Topic                                              | Decision                                                                                                                                                          | Rationale                                                                                                                                                       | Affected Layers            | Phase Ownership   |
+| ------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------------- |
+| **DEC-4-001** | Search Engine Implementation                                  | PostgreSQL native FTS + Trigram GIN indexes (`pg_trgm`)                                                                                                           | Fully satisfies $<500\text{ms}$ latency requirement without introducing external search cluster dependencies                                                    | Database, Repository       | Phase 4           |
+| **DEC-4-002** | Departure Date Storage Format                                 | SQL `DATE` (`YYYY-MM-DD`)                                                                                                                                         | Departures are whole-day calendar events; eliminates timezone conversion errors between client and server                                                       | Database, Contracts        | Phase 4           |
+| **DEC-4-003** | Inventory Authority & Hold Storage                            | PostgreSQL ACID single source of truth; dynamic hold aggregation                                                                                                  | Eliminates dual-write anomalies; guarantees zero double-booking (`NFR-REL-001`)                                                                                 | Database, Repositories     | Phase 4 & Phase 5 |
+| **DEC-4-004** | Temporary Hold Execution Boundary                             | Schema & query design in Phase 4; checkout creation & BullMQ worker in Phase 5                                                                                    | Preserves clean phase boundaries between catalogue discovery (Phase 4) and booking lifecycle (Phase 5)                                                          | Services, Jobs             | Phase 4 & Phase 5 |
+| **DEC-4-005** | Departure Status vs Availability Status                       | Decouple operational `DepartureStatus` (`OPEN`, `CLOSED`, `CANCELLED`, `COMPLETED`) from derived `AvailabilityStatus` (`AVAILABLE`, `FEW_SEATS_LEFT`, `SOLD_OUT`) | Separates operator administrative lifecycle from dynamic consumer UI badges                                                                                     | Database, Shared Contracts | Phase 4           |
+| **DEC-4-006** | Extended Sorting Modes (`newest`, `featured`)                 | [DECISION] Optional implementation extensions for catalogue browsing convenience                                                                                  | Canonical `FR-SEARCH-004` requires Price and Duration sorting only. `newest` and `featured` are added as non-breaking convenience options                       | Repository, Contracts      | Phase 4           |
+| **DEC-4-007** | Filter Extensions (`isFeatured`, `minPrice`, `departureDate`) | [DECISION] Optional implementation extensions for storefront discovery                                                                                            | Canonical `FR-SEARCH-002` specifies Destination, Theme, Duration, and Maximum Budget. Extended filters enhance discovery without violating canonical scope      | Repository, Contracts, UI  | Phase 4           |
+| **DEC-4-008** | Departure Price Overrides                                     | [DECISION] Optional architectural extension for seasonal pricing elasticity                                                                                       | Phase 0 `DR-006` and `FR-CONFIG-002` do not mandate departure-level overrides. Schema supports optional nullable overrides with fallback to package base prices | Database, Services         | Phase 4           |
+| **DEC-4-009** | `FR-ADMIN-004` Manifest Ownership                             | [DECISION] Split ownership: Departure CRUD in Phase 4; Passenger Manifests in Phase 5                                                                             | Passenger manifests depend on Phase 5 booking and passenger records. Phase 4 cannot retrieve manifests before booking data structures exist                     | Admin APIs, Services       | Phase 4 & Phase 5 |
 
 ---
 
 ## 31. Implementation Sequence
 
 The verified implementation sequence for Phase 4:
+
 1. **Step 0:** Discovery, Requirements Reconciliation & Implementation Plan (**Current Step**)
 2. **Step 1:** Database Schema & Migration (`003_create_departures_and_inventory_schema.sql`)
 3. **Step 2:** Shared Contracts, DTOs & Zod Validation Schemas
