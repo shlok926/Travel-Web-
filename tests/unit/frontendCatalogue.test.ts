@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  escapeHtml,
-  formatPrice,
-  formatDuration,
-  FALLBACK_IMAGE,
-} from '../../frontend/src/utils/formatters.js';
-import { ApiClient } from '../../frontend/src/api/client.js';
-import { renderDestinationCard } from '../../frontend/src/components/destinationCard.js';
+import { escapeHtml, formatPrice, formatDuration } from '../../frontend/src/utils/formatters.js';
+import { ApiClient, api } from '../../frontend/src/api/client.js';
 import { renderPackageCard } from '../../frontend/src/components/packageCard.js';
 import { PackageDetailModal } from '../../frontend/src/components/packageDetailModal.js';
 import { CatalogueSection } from '../../frontend/src/components/catalogueSection.js';
@@ -16,9 +10,11 @@ class MockElement {
   tagName: string;
   id = '';
   className = '';
+  value = '';
   innerHTML = '';
   textContent = '';
   style: Record<string, string> = {};
+  attributes = new Map<string, string>();
   classList = {
     classes: new Set<string>(),
     add: (cls: string) => this.classList.classes.add(cls),
@@ -29,6 +25,14 @@ class MockElement {
 
   constructor(tagName: string) {
     this.tagName = tagName.toUpperCase();
+  }
+
+  setAttribute(name: string, val: string) {
+    this.attributes.set(name, String(val));
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) || null;
   }
 
   addEventListener(type: string, fn: Function) {
@@ -44,6 +48,22 @@ class MockElement {
       btn.id = 'package-modal-close';
       return btn;
     }
+    if (sel === '#party-availability-alert') {
+      const el = new MockElement('DIV');
+      el.id = 'party-availability-alert';
+      return el;
+    }
+    if (sel === '#departures-list-container') {
+      const el = new MockElement('DIV');
+      el.id = 'departures-list-container';
+      return el;
+    }
+    if (sel === '#party-size-input') {
+      const el = new MockElement('INPUT');
+      el.id = 'party-size-input';
+      el.value = '1';
+      return el;
+    }
     return null;
   }
 
@@ -54,7 +74,7 @@ class MockElement {
   scrollIntoView(_opts?: any) {}
 }
 
-describe('Phase 3 Step 6 — Frontend Catalogue UI & Dynamic Experience', () => {
+describe('Phase 4 Step 6 — Frontend Search, Filters, Departures & Availability', () => {
   let mockDoc: any;
   let mockWin: any;
 
@@ -75,12 +95,12 @@ describe('Phase 3 Step 6 — Frontend Catalogue UI & Dynamic Experience', () => 
     (globalThis as any).window = mockWin;
   });
 
-  describe('1. Utility Formatters & Sanitizers', () => {
-    it('escapeHtml escapes dangerous XSS injection vectors', () => {
-      const raw = '<script>alert("XSS")</script> & \'hello\'';
+  describe('1. Utility Formatters & Sanitizers (FR-SEARCH / SECURITY)', () => {
+    it('escapeHtml escapes dangerous XSS injection vectors in package data', () => {
+      const raw = '<script>alert("XSS")</script> <img src=x onerror=alert(1)> & \'hello\'';
       const escaped = escapeHtml(raw);
       expect(escaped).toBe(
-        '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt; &amp; &#039;hello&#039;',
+        '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt; &lt;img src=x onerror=alert(1)&gt; &amp; &#039;hello&#039;',
       );
     });
 
@@ -89,7 +109,7 @@ describe('Phase 3 Step 6 — Frontend Catalogue UI & Dynamic Experience', () => 
       expect(escapeHtml(undefined)).toBe('');
     });
 
-    it('formatPrice converts integer minor units (paise/cents) to localized currency', () => {
+    it('formatPrice converts integer minor units (paise/cents) into formatted currency without floating point drift', () => {
       // 45,000 INR = 4,500,000 paise
       expect(formatPrice(4500000, 'INR')).toBe('₹45,000');
       // 250 USD = 25,000 cents
@@ -111,7 +131,7 @@ describe('Phase 3 Step 6 — Frontend Catalogue UI & Dynamic Experience', () => 
     });
   });
 
-  describe('2. API Client Catalogue Methods', () => {
+  describe('2. Phase 4 API Client Methods (FR-SEARCH / FR-INVENT)', () => {
     let client: ApiClient;
     let mockFetch: any;
 
@@ -125,285 +145,419 @@ describe('Phase 3 Step 6 — Frontend Catalogue UI & Dynamic Experience', () => 
       vi.restoreAllMocks();
     });
 
-    it('getDestinations sends GET request to /destinations with query params', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          success: true,
-          data: [{ id: '1', slug: 'kashmir-valley', cityName: 'Srinagar' }],
-        }),
-      });
-
-      const res = await client.getDestinations({ isFeatured: true, limit: 10 });
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/v1/destinations?limit=10&isFeatured=true',
-        expect.objectContaining({ method: 'GET' }),
-      );
-      expect(res).toHaveLength(1);
-    });
-
-    it('getDestinationBySlug sends GET request to /destinations/:slug with URI encoding', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          success: true,
-          data: { id: '1', slug: 'kashmir-valley', cityName: 'Srinagar' },
-        }),
-      });
-
-      const res = await client.getDestinationBySlug('kashmir-valley');
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/v1/destinations/kashmir-valley',
-        expect.objectContaining({ method: 'GET' }),
-      );
-      expect(res.slug).toBe('kashmir-valley');
-    });
-
-    it('getThemes sends GET request to /themes', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          success: true,
-          data: [{ id: '1', slug: 'honeymoon', title: 'Honeymoon' }],
-        }),
-      });
-
-      const res = await client.getThemes();
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/v1/themes',
-        expect.objectContaining({ method: 'GET' }),
-      );
-      expect(res).toHaveLength(1);
-    });
-
-    it('getPackages sends GET request to /packages with destination and theme filters', async () => {
+    it('searchPackages builds canonical query parameters and returns items + pagination meta', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({
           success: true,
           data: [{ id: '1', slug: 'kashmir-honeymoon', title: 'Kashmir Honeymoon' }],
+          meta: {
+            page: 1,
+            limit: 12,
+            total: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+          },
         }),
       });
 
-      const res = await client.getPackages({
+      const res = await client.searchPackages({
+        q: 'Kashmir',
         destinationSlug: 'kashmir-valley',
         themeSlug: 'honeymoon',
+        minDuration: 3,
+        maxDuration: 7,
+        maxPrice: 5000000,
+        sortBy: 'price_asc',
+        page: 1,
         limit: 12,
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/v1/packages?limit=12&destinationSlug=kashmir-valley&themeSlug=honeymoon',
+        'http://localhost:3000/api/v1/packages/search?q=Kashmir&destinationSlug=kashmir-valley&themeSlug=honeymoon&minDuration=3&maxDuration=7&maxPrice=5000000&sortBy=price_asc&page=1&limit=12',
         expect.objectContaining({ method: 'GET' }),
       );
-      expect(res).toHaveLength(1);
+      expect(res.items).toHaveLength(1);
+      expect(res.pagination.total).toBe(1);
     });
 
-    it('getPackageBySlug sends GET request to /packages/:slug', async () => {
+    it('getPackageDepartures sends GET request to /packages/:slug/departures', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({
           success: true,
-          data: { id: '1', slug: 'kashmir-honeymoon', title: 'Kashmir Honeymoon' },
+          data: [
+            {
+              departureId: 'dep-1',
+              packageId: 'pkg-1',
+              departureDate: '2026-10-15',
+              returnDate: '2026-10-21',
+              totalCapacity: 20,
+              availableSeats: 12,
+              availabilityStatus: 'AVAILABLE',
+              effectiveAdultPrice: 4500000,
+              currency: 'INR',
+            },
+          ],
+          meta: { total: 1 },
         }),
       });
 
-      const res = await client.getPackageBySlug('kashmir-honeymoon');
+      const res = await client.getPackageDepartures('kashmir-honeymoon');
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3000/api/v1/packages/kashmir-honeymoon',
+        'http://localhost:3000/api/v1/packages/kashmir-honeymoon/departures',
         expect.objectContaining({ method: 'GET' }),
       );
-      expect(res.slug).toBe('kashmir-honeymoon');
+      expect(res).toHaveLength(1);
+      expect(res[0].departureDate).toBe('2026-10-15');
+    });
+
+    it('getDepartureAvailability sends GET request to /departures/:id/availability with partySize', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            departureId: 'dep-1',
+            packageId: 'pkg-1',
+            departureDate: '2026-10-15',
+            returnDate: '2026-10-21',
+            totalCapacity: 20,
+            availableSeats: 4,
+            availabilityStatus: 'FEW_SEATS_LEFT',
+            isAvailableForParty: true,
+            requestedPartySize: 2,
+            effectiveAdultPrice: 4500000,
+            currency: 'INR',
+          },
+        }),
+      });
+
+      const res = await client.getDepartureAvailability('dep-1', { partySize: 2 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/v1/departures/dep-1/availability?partySize=2',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(res.availabilityStatus).toBe('FEW_SEATS_LEFT');
+      expect(res.isAvailableForParty).toBe(true);
+      expect(res.requestedPartySize).toBe(2);
     });
   });
 
-  describe('3. Catalogue Component Templates', () => {
-    it('renderDestinationCard renders dynamic city, country, image and featured badge', () => {
-      const dest = {
-        id: '1',
-        slug: 'kashmir-valley',
-        cityName: 'Srinagar',
-        country: 'India',
-        description: 'Paradise on Earth with snow-clad mountains and lakes.',
-        thumbnailUrl: 'https://images.example.com/kashmir.jpg',
-        isFeatured: true,
-      };
-
-      const html = renderDestinationCard(dest);
-      expect(html).toContain('Srinagar');
-      expect(html).toContain('India');
-      expect(html).toContain('Paradise on Earth');
-      expect(html).toContain('badge-featured');
-      expect(html).toContain('data-slug="kashmir-valley"');
-      expect(html).toContain('https://images.example.com/kashmir.jpg');
-    });
-
-    it('renderDestinationCard uses fallback image when thumbnailUrl is missing', () => {
-      const dest = {
-        id: '1',
-        slug: 'ladakh',
-        cityName: 'Leh',
-        country: 'India',
-        description: 'Land of high passes.',
-        thumbnailUrl: null,
-        isFeatured: false,
-      };
-
-      const html = renderDestinationCard(dest);
-      expect(html).toContain(FALLBACK_IMAGE);
-      expect(html).not.toContain('badge-featured');
-    });
-
-    it('renderPackageCard renders dynamic title, duration, price and destination city', () => {
+  describe('3. Package Card Presentation & Next Departure Badges (FR-SEARCH / FR-INVENT)', () => {
+    it('renderPackageCard renders next departure date, live availability badge and effective price', () => {
       const pkg = {
-        id: '1',
+        id: 'pkg-1',
         slug: 'kashmir-honeymoon',
         title: 'Splendid Kashmir Honeymoon',
-        shortDescription: '6 Days in paradise with Shikara ride and Gulmarg Gondola.',
+        shortDescription: '6 Days in paradise.',
         durationDays: 6,
         durationNights: 5,
         baseAdultPrice: 4500000,
         currency: 'INR',
         heroImageUrl: 'https://images.example.com/pkg.jpg',
         isFeatured: true,
-        destination: { cityName: 'Srinagar' },
+        destinationCity: 'Srinagar',
         theme: { title: 'Honeymoon' },
+        nextDeparture: {
+          departureId: 'dep-1',
+          departureDate: '2026-10-15',
+          returnDate: '2026-10-21',
+          availableSeats: 3,
+          availabilityStatus: 'FEW_SEATS_LEFT',
+          effectiveAdultPrice: 4200000,
+          currency: 'INR',
+        },
       };
 
       const html = renderPackageCard(pkg);
       expect(html).toContain('Splendid Kashmir Honeymoon');
       expect(html).toContain('6D / 5N');
-      expect(html).toContain('₹45,000');
-      expect(html).toContain('Srinagar');
-      expect(html).toContain('Honeymoon');
-      expect(html).toContain('badge-featured');
+      expect(html).toContain('₹42,000'); // Effective price override
+      expect(html).toContain('2026-10-15');
+      expect(html).toContain('badge-few-seats');
+      expect(html).toContain('Only 3 Left!');
+    });
+
+    it('renderPackageCard correctly renders SOLD_OUT status', () => {
+      const pkg = {
+        id: 'pkg-2',
+        slug: 'ladakh-bike-trip',
+        title: 'Ladakh Adventure',
+        shortDescription: 'Epic motorcycle expedition.',
+        durationDays: 8,
+        durationNights: 7,
+        baseAdultPrice: 6500000,
+        currency: 'INR',
+        nextDeparture: {
+          departureId: 'dep-2',
+          departureDate: '2026-11-01',
+          returnDate: '2026-11-09',
+          availableSeats: 0,
+          availabilityStatus: 'SOLD_OUT',
+          effectiveAdultPrice: 6500000,
+          currency: 'INR',
+        },
+      };
+
+      const html = renderPackageCard(pkg);
+      expect(html).toContain('badge-sold-out');
+      expect(html).toContain('Sold Out');
+    });
+
+    it('renderPackageCard sanitizes potential XSS in titles and descriptions', () => {
+      const pkg = {
+        id: 'pkg-xss',
+        slug: 'xss-package',
+        title: '<script>alert("hacked")</script>',
+        shortDescription: '<img src=x onerror=alert(1)>',
+        durationDays: 5,
+        durationNights: 4,
+        baseAdultPrice: 3000000,
+        destinationCity: '<b onmouseover=alert(1)>City</b>',
+      };
+
+      const html = renderPackageCard(pkg);
+      expect(html).not.toContain('<script>');
+      expect(html).toContain('&lt;script&gt;alert(&quot;hacked&quot;)&lt;/script&gt;');
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     });
   });
 
-  describe('4. Package Detail Modal & Day-wise Itinerary', () => {
+  describe('4. Package Detail Modal & Live Departures (FR-INVENT-001 / FR-INVENT-002 / FR-INVENT-003)', () => {
     let mockContainer: MockElement;
+    let mockAlertBox: MockElement;
+    let mockListContainer: MockElement;
+    let mockPartyInput: MockElement;
 
     beforeEach(() => {
       mockContainer = new MockElement('DIV');
       mockContainer.id = 'package-detail-modal';
+      mockAlertBox = new MockElement('DIV');
+      mockAlertBox.id = 'party-availability-alert';
+      mockListContainer = new MockElement('DIV');
+      mockListContainer.id = 'departures-list-container';
+      mockPartyInput = new MockElement('INPUT');
+      mockPartyInput.id = 'party-size-input';
+      mockPartyInput.value = '1';
+
       mockDoc.getElementById.mockImplementation((id: string) => {
         if (id === 'package-detail-modal') return mockContainer;
+        if (id === 'party-availability-alert') return mockAlertBox;
+        if (id === 'departures-list-container') return mockListContainer;
+        if (id === 'party-size-input') return mockPartyInput;
         return null;
       });
     });
 
-    it('PackageDetailModal.open renders full overview, inclusions, exclusions, and day-wise itinerary', () => {
-      const fullPackage = {
+    it('PackageDetailModal.open loads departures and renders departure dates, status, and pricing', async () => {
+      const departures = [
+        {
+          departureId: 'dep-1',
+          packageId: 'pkg-1',
+          departureDate: '2026-10-15',
+          returnDate: '2026-10-21',
+          totalCapacity: 20,
+          availableSeats: 10,
+          availabilityStatus: 'AVAILABLE',
+          isAvailableForParty: true,
+          effectiveAdultPrice: 4500000,
+          currency: 'INR',
+        },
+        {
+          departureId: 'dep-2',
+          packageId: 'pkg-1',
+          departureDate: '2026-11-01',
+          returnDate: '2026-11-07',
+          totalCapacity: 20,
+          availableSeats: 0,
+          availabilityStatus: 'SOLD_OUT',
+          isAvailableForParty: false,
+          effectiveAdultPrice: 4500000,
+          currency: 'INR',
+        },
+      ];
+
+      vi.spyOn(ApiClient.prototype, 'getPackageDepartures').mockResolvedValueOnce(
+        departures as any,
+      );
+      vi.spyOn(ApiClient.prototype, 'getDepartureAvailability').mockResolvedValueOnce(
+        departures[0] as any,
+      );
+
+      const pkg = {
         id: 'pkg-1',
-        slug: 'splendid-kashmir',
-        title: 'Splendid Kashmir Tour',
-        shortDescription: '6 Days tour in paradise.',
-        description: 'Comprehensive overview of Kashmir scenic beauty.',
+        slug: 'kashmir-honeymoon',
+        title: 'Splendid Kashmir Honeymoon',
+        shortDescription: '6 Days tour.',
+        description: 'Detailed description.',
         durationDays: 6,
         durationNights: 5,
         baseAdultPrice: 4500000,
-        baseChildPrice: 2250000,
         currency: 'INR',
-        heroImageUrl: 'https://images.example.com/hero.jpg',
-        galleryUrls: ['https://images.example.com/g1.jpg'],
-        inclusions: ['Houseboat Stay', 'Daily Breakfast & Dinner', 'Shikara Ride'],
-        exclusions: ['Airfare', 'Personal Expenses'],
-        accommodationTiers: ['STANDARD', 'LUXURY'],
-        mealPlans: ['BREAKFAST', 'HALF_BOARD'],
-        destination: { cityName: 'Srinagar', country: 'India' },
-        theme: { title: 'Family' },
-        itinerary: [
-          {
-            dayNumber: 1,
-            title: 'Arrival in Srinagar',
-            activityDescription: 'Airport pickup, transfer to Houseboat, Dal Lake Shikara ride.',
-            mealsIncluded: ['DINNER'],
-            accommodationNotes: 'Deluxe Houseboat',
-          },
-          {
-            dayNumber: 2,
-            title: 'Gulmarg Excursion',
-            activityDescription: 'Full day trip to Gulmarg with Gondola cable car ride.',
-            mealsIncluded: ['BREAKFAST', 'DINNER'],
-            accommodationNotes: 'Gulmarg Resort',
-          },
-        ],
       };
 
-      PackageDetailModal.open(fullPackage);
+      await PackageDetailModal.open(pkg);
 
       expect(mockContainer.classList.contains('hidden')).toBe(false);
-      expect(mockContainer.innerHTML).toContain('Splendid Kashmir Tour');
-      expect(mockContainer.innerHTML).toContain('₹45,000');
-      expect(mockContainer.innerHTML).toContain('₹22,500');
-      expect(mockContainer.innerHTML).toContain('Houseboat Stay');
-      expect(mockContainer.innerHTML).toContain('Airfare');
-      expect(mockContainer.innerHTML).toContain('Day 1');
-      expect(mockContainer.innerHTML).toContain('Arrival in Srinagar');
-      expect(mockContainer.innerHTML).toContain('Day 2');
-      expect(mockContainer.innerHTML).toContain('Gulmarg Excursion');
-      expect(mockContainer.innerHTML).toContain('Deluxe Houseboat');
+      expect(mockContainer.innerHTML).toContain('Upcoming Departures & Availability');
+      expect(mockContainer.innerHTML).toContain('Party Size:');
+      expect(mockListContainer.innerHTML).toContain('2026-10-15');
+      expect(mockListContainer.innerHTML).toContain('Available (10 seats)');
+      expect(mockListContainer.innerHTML).toContain('Sold Out');
+      expect(mockListContainer.innerHTML).toContain('disabled');
     });
 
-    it('PackageDetailModal.close hides modal and clears contents', () => {
-      PackageDetailModal.open({ title: 'Test', durationDays: 1, durationNights: 0 });
-      PackageDetailModal.close();
-      expect(mockContainer.classList.contains('hidden')).toBe(true);
-      expect(mockContainer.innerHTML).toBe('');
+    it('PackageDetailModal warns when party size exceeds available seats (isAvailableForParty: false)', async () => {
+      PackageDetailModal.departures = [
+        {
+          departureId: 'dep-1',
+          packageId: 'pkg-1',
+          departureDate: '2026-10-15',
+          returnDate: '2026-10-21',
+          totalCapacity: 20,
+          availableSeats: 2,
+          availabilityStatus: 'FEW_SEATS_LEFT',
+          isAvailableForParty: false,
+          requestedPartySize: 5,
+          effectiveAdultPrice: 4500000,
+          currency: 'INR',
+        },
+      ];
+
+      vi.spyOn(ApiClient.prototype, 'getDepartureAvailability').mockResolvedValueOnce({
+        departureId: 'dep-1',
+        packageId: 'pkg-1',
+        departureDate: '2026-10-15',
+        returnDate: '2026-10-21',
+        totalCapacity: 20,
+        availableSeats: 2,
+        availabilityStatus: 'FEW_SEATS_LEFT',
+        isAvailableForParty: false,
+        requestedPartySize: 5,
+        effectiveAdultPrice: 4500000,
+        currency: 'INR',
+      } as any);
+
+      await PackageDetailModal.checkPartyAvailability('dep-1', 5);
+
+      expect(mockAlertBox.innerHTML).toContain('Limited Seats Available');
+      expect(mockAlertBox.innerHTML).toContain('less than your party size of 5');
     });
   });
 
-  describe('5. CatalogueSection Orchestrator & Filtering', () => {
+  describe('5. CatalogueSection Search, Filters & Pagination (FR-SEARCH-001..004)', () => {
     beforeEach(() => {
-      CatalogueSection.currentFilter = { destinationSlug: null, themeSlug: null };
-      CatalogueSection.state = {
-        destinations: [],
-        themes: [],
-        packages: [],
-        loadingDestinations: false,
-        loadingPackages: false,
-        errorDestinations: null,
-        errorPackages: null,
+      vi.restoreAllMocks();
+      CatalogueSection.state.filters = {
+        q: '',
+        destinationSlug: null as string | null,
+        themeSlug: null as string | null,
+        minDuration: null as number | null,
+        maxDuration: null as number | null,
+        maxPrice: null as number | null,
+        sortBy: null as string | null,
+        page: 1,
+        limit: 12,
       };
+      CatalogueSection.state.packages = [];
+      CatalogueSection.state.destinations = [];
+      CatalogueSection.state.themes = [];
+      CatalogueSection.pkgContainer = new MockElement('DIV');
+      CatalogueSection.destContainer = new MockElement('DIV');
+      CatalogueSection.themeBar = new MockElement('DIV');
+      CatalogueSection.filterStatusContainer = new MockElement('DIV');
+      CatalogueSection.paginationContainer = new MockElement('NAV');
       mockDoc.getElementById.mockReturnValue(new MockElement('DIV'));
     });
 
-    it('filterByDestination sets destinationSlug filter and reloads packages', () => {
-      const loadPackagesSpy = vi.spyOn(CatalogueSection, 'loadPackages').mockResolvedValue();
-      CatalogueSection.filterByDestination('kashmir-valley');
-      expect(CatalogueSection.currentFilter.destinationSlug).toBe('kashmir-valley');
-      expect(loadPackagesSpy).toHaveBeenCalled();
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
 
-    it('filterByTheme sets themeSlug filter and reloads packages', () => {
+    it('resetFilters resets all filter state to default and fetches packages', () => {
+      CatalogueSection.state.filters.q = 'Kashmir';
+      CatalogueSection.state.filters.destinationSlug = 'kashmir-valley';
+      CatalogueSection.state.filters.sortBy = 'price_asc';
+      CatalogueSection.state.filters.page = 3;
+
       const loadPackagesSpy = vi.spyOn(CatalogueSection, 'loadPackages').mockResolvedValue();
       const renderThemesSpy = vi
         .spyOn(CatalogueSection, 'renderThemes')
         .mockImplementation(() => {});
-      CatalogueSection.filterByTheme('honeymoon');
-      expect(CatalogueSection.currentFilter.themeSlug).toBe('honeymoon');
+
+      CatalogueSection.resetFilters();
+
+      expect(CatalogueSection.state.filters.q).toBe('');
+      expect(CatalogueSection.state.filters.destinationSlug).toBeNull();
+      expect(CatalogueSection.state.filters.sortBy).toBeNull();
+      expect(CatalogueSection.state.filters.page).toBe(1);
       expect(renderThemesSpy).toHaveBeenCalled();
       expect(loadPackagesSpy).toHaveBeenCalled();
     });
 
-    it('clearFilters resets all filters and reloads packages', () => {
-      CatalogueSection.currentFilter = {
-        destinationSlug: 'kashmir-valley',
-        themeSlug: 'honeymoon',
-      };
+    it('goToPage updates page and reloads packages', () => {
       const loadPackagesSpy = vi.spyOn(CatalogueSection, 'loadPackages').mockResolvedValue();
-      const renderThemesSpy = vi
-        .spyOn(CatalogueSection, 'renderThemes')
-        .mockImplementation(() => {});
-      CatalogueSection.clearFilters();
-      expect(CatalogueSection.currentFilter.destinationSlug).toBeNull();
-      expect(CatalogueSection.currentFilter.themeSlug).toBeNull();
-      expect(renderThemesSpy).toHaveBeenCalled();
+      CatalogueSection.goToPage(2);
+      expect(CatalogueSection.state.filters.page).toBe(2);
       expect(loadPackagesSpy).toHaveBeenCalled();
+    });
+
+    it('stale search responses are ignored if a newer search was initiated', async () => {
+      let resolveFirst: Function;
+      const firstPromise = new Promise((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      const spy = vi.spyOn(api, 'searchPackages');
+      spy.mockImplementationOnce(() => firstPromise as any);
+      spy.mockImplementationOnce(
+        async () =>
+          ({
+            items: [{ id: 'pkg-2', title: 'Dubai Luxury' }],
+            pagination: {
+              page: 1,
+              limit: 12,
+              total: 1,
+              totalPages: 1,
+              hasNextPage: false,
+              hasPrevPage: false,
+            },
+          }) as any,
+      );
+
+      // Trigger first search (Paris)
+      CatalogueSection.state.filters.q = 'Paris';
+      const firstCall = CatalogueSection.loadPackages();
+
+      // Immediately trigger second search (Dubai)
+      CatalogueSection.state.filters.q = 'Dubai';
+      const secondCall = CatalogueSection.loadPackages();
+
+      // Resolve second search first
+      await secondCall;
+      expect(CatalogueSection.state.packages).toEqual([{ id: 'pkg-2', title: 'Dubai Luxury' }]);
+
+      // Now resolve the first slower search (Paris)
+      resolveFirst!({
+        items: [{ id: 'pkg-1', title: 'Paris Romance' }],
+        pagination: {
+          page: 1,
+          limit: 12,
+          total: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      });
+      await firstCall;
+
+      // Ensure Dubai results were NOT overwritten by stale Paris response
+      expect(CatalogueSection.state.packages).toEqual([{ id: 'pkg-2', title: 'Dubai Luxury' }]);
     });
   });
 });

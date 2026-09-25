@@ -37,6 +37,7 @@ async function startServer(): Promise<void> {
     });
 
     app.log.info(`🚀 Young Tours & Travels API server running at ${address}`);
+    app.log.info(`👉 Swagger / OpenAPI Docs: ${address}/documentation`);
     app.log.info(`👉 Health check endpoint: ${address}/api/v1/health`);
     app.log.info(`👉 Readiness check endpoint: ${address}/api/v1/ready`);
   } catch (err) {

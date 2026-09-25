@@ -19,6 +19,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   fastify.post(
     '/register',
     {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Register new customer account',
+        description:
+          'Creates a new customer account with Argon2id password hashing, issues an RS256 JWT access token, and sets an HttpOnly refresh cookie.',
+      },
       config: {
         rateLimit: {
           max: 10,
@@ -33,6 +39,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   fastify.post(
     '/login',
     {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Authenticate user credentials',
+        description:
+          'Verifies email and password using Argon2id, generates RS256 JWT access token, and issues HttpOnly refresh cookie.',
+      },
       config: {
         rateLimit: {
           max: 20,
@@ -47,6 +59,11 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   fastify.post(
     '/refresh',
     {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Refresh access token',
+        description: 'Issues a new RS256 JWT access token using the HttpOnly refresh token cookie.',
+      },
       config: {
         rateLimit: {
           max: 60,
@@ -61,6 +78,11 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   fastify.post(
     '/logout',
     {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Logout user and revoke refresh session',
+        description: 'Revokes the active refresh token session and clears the HttpOnly cookie.',
+      },
       config: {
         rateLimit: {
           max: 60,
@@ -72,5 +94,17 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
   );
 
   // 5. GET /me — Protected User Profile
-  fastify.get('/me', { preHandler: [fastify.authenticate] }, controller.me);
+  fastify.get(
+    '/me',
+    {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Get current authenticated user',
+        description: 'Returns profile details for the currently authenticated user.',
+        security: [{ BearerAuth: [] }],
+      },
+      preHandler: [fastify.authenticate],
+    },
+    controller.me,
+  );
 };

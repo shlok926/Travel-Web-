@@ -74,6 +74,10 @@ export class ApiClient {
         throw error;
       }
 
+      if (options.includeMeta) {
+        return { data: json.data, meta: json.meta };
+      }
+
       return json.data;
     } catch (err) {
       if (!options.silent) {
@@ -174,7 +178,7 @@ export class ApiClient {
     return this.get('/health', { skipAuth: true });
   }
 
-  // --- Public Catalogue API ---
+  // --- Public Catalogue & Search APIs ---
 
   async getDestinations(params = {}) {
     const query = new URLSearchParams();
@@ -208,6 +212,85 @@ export class ApiClient {
   async getPackageBySlug(slug) {
     if (!slug) throw new Error('Package slug is required');
     return this.get(`/packages/${encodeURIComponent(slug)}`, { skipAuth: true });
+  }
+
+  // --- Phase 4 Search, Departure & Availability APIs ---
+
+  async searchPackages(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', String(params.q).trim());
+    if (params.destinationSlug) query.set('destinationSlug', String(params.destinationSlug).trim());
+    if (params.themeSlug) query.set('themeSlug', String(params.themeSlug).trim());
+    if (
+      params.minDuration !== undefined &&
+      params.minDuration !== null &&
+      params.minDuration !== ''
+    ) {
+      query.set('minDuration', String(params.minDuration));
+    }
+    if (
+      params.maxDuration !== undefined &&
+      params.maxDuration !== null &&
+      params.maxDuration !== ''
+    ) {
+      query.set('maxDuration', String(params.maxDuration));
+    }
+    if (params.maxPrice !== undefined && params.maxPrice !== null && params.maxPrice !== '') {
+      query.set('maxPrice', String(params.maxPrice));
+    }
+    if (params.minPrice !== undefined && params.minPrice !== null && params.minPrice !== '') {
+      query.set('minPrice', String(params.minPrice));
+    }
+    if (params.currency) query.set('currency', String(params.currency));
+    if (params.departureDateFrom) query.set('departureDateFrom', String(params.departureDateFrom));
+    if (params.departureDateTo) query.set('departureDateTo', String(params.departureDateTo));
+    if (params.isFeatured !== undefined && params.isFeatured !== null && params.isFeatured !== '') {
+      query.set('isFeatured', String(params.isFeatured));
+    }
+    if (params.sortBy) query.set('sortBy', String(params.sortBy));
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+
+    const qs = query.toString();
+    const endpoint = `/packages/search${qs ? `?${qs}` : ''}`;
+    const result = await this.get(endpoint, {
+      skipAuth: true,
+      includeMeta: true,
+      ...options,
+    });
+    return {
+      items: Array.isArray(result?.data) ? result.data : [],
+      pagination: result?.meta || {
+        page: Number(params.page) || 1,
+        limit: Number(params.limit) || 12,
+        total: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
+  }
+
+  async getPackageDepartures(slug, options = {}) {
+    if (!slug) throw new Error('Package slug is required');
+    return this.get(`/packages/${encodeURIComponent(slug)}/departures`, {
+      skipAuth: true,
+      ...options,
+    });
+  }
+
+  async getDepartureAvailability(departureId, params = {}, options = {}) {
+    if (!departureId) throw new Error('Departure ID is required');
+    const query = new URLSearchParams();
+    if (params.partySize) query.set('partySize', String(params.partySize));
+    const qs = query.toString();
+    return this.get(
+      `/departures/${encodeURIComponent(departureId)}/availability${qs ? `?${qs}` : ''}`,
+      {
+        skipAuth: true,
+        ...options,
+      },
+    );
   }
 }
 
