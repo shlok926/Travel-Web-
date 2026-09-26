@@ -71,6 +71,7 @@ export interface ExpireBookingCommand {
 export interface BookingDetailsResult {
   booking: BookingEntity;
   passengers: PassengerDto[];
+  holdExpiresAt?: string | null;
 }
 
 // ============================================================
@@ -647,7 +648,16 @@ export class BookingService {
       createdAt: p.createdAt.toISOString(),
     }));
 
-    return { booking, passengers };
+    let holdExpiresAt: string | null = null;
+    if (booking.holdId) {
+      const hold = await this.inventoryHoldRepo.findById(booking.holdId);
+      if (hold) {
+        holdExpiresAt =
+          hold.expiresAt instanceof Date ? hold.expiresAt.toISOString() : String(hold.expiresAt);
+      }
+    }
+
+    return { booking, passengers, holdExpiresAt };
   }
 
   /**
