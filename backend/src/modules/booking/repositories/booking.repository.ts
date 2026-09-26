@@ -423,6 +423,22 @@ export class BookingRepository {
   }
 
   /**
+   * Finds a booking by associated inventory hold ID.
+   */
+  async findByHoldId(holdId: string, client?: pg.PoolClient): Promise<BookingEntity | null> {
+    const executor = this.getExecutor(client);
+    const sql = `
+      SELECT ${BOOKING_PROJECTION}
+      FROM bookings
+      WHERE hold_id = $1;
+    `;
+
+    const result = await executor.query<BookingRow>(sql, [holdId]);
+    const row = result.rows[0];
+    return row ? mapRowToBookingEntity(row) : null;
+  }
+
+  /**
    * Finds a booking by human-readable reference (e.g. BK-20261115-A8F2).
    */
   async findByReference(reference: string, client?: pg.PoolClient): Promise<BookingEntity | null> {

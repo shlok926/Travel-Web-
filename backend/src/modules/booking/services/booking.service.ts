@@ -621,6 +621,149 @@ export class BookingService {
   }
 
   /**
+   * Domain primitive for background hold & booking expiration (Worker entry point).
+   *
+   * Idempotent & Concurrency Safe:
+   * - If hold/booking already COMMITTED/CONFIRMED: returns outcome 'COMMITTED' without modifying state.
+   * - If hold/booking already CANCELLED: returns outcome 'CANCELLED' without modifying state.
+   * - If hold/booking already EXPIRED: returns outcome 'ALREADY_EXPIRED' idempotently.
+   * - If AWAITING_PAYMENT + ACTIVE hold:
+   *     1. Acquires departure lock (SELECT ... FOR UPDATE) for canonical lock order: departure_schedules -> bookings -> inventory_holds.
+   *     2. Transitions booking: AWAITING_PAYMENT -> EXPIRED.
+   *     3. Transitions hold: ACTIVE -> EXPIRED.
+   *     4. Does NOT modify departure_schedules.booked_seats (seats were never committed).
+   */
+  async expireHoldAndBooking(
+    holdId: string,
+    bookingId?: string,
+  ): Promise<{
+    outcome: 'EXPIRED' | 'COMMITTED' | 'ALREADY_EXPIRED' | 'CANCELLED' | 'NO_OP';
+    booking: BookingEntity | null;
+    hold: InventoryHoldEntity | null;
+  }> {
+    return this.db.withTransaction(async (client: pg.PoolClient) => {
+      // 1. Fetch hold
+      const hold = await this.inventoryHoldRepo.findById(holdId, client);
+      if (!hold) {
+        return { outcome: 'NO_OP', booking: null, hold: null };
+      }
+
+      // Check if hold is already COMMITTED (payment confirmation won race)
+      if (hold.status === 'COMMITTED') {
+        const booking = bookingId
+          ? await this.bookingRepo.findById(bookingId, client)
+          : await this.bookingRepo.findByHoldId(holdId, client);
+        return { outcome: 'COMMITTED', booking, hold };
+      }
+
+      // Check if hold is already RELEASED
+      if (hold.status === 'RELEASED') {
+        const booking = bookingId
+          ? await this.bookingRepo.findById(bookingId, client)
+          : await this.bookingRepo.findByHoldId(holdId, client);
+        return { outcome: 'CANCELLED', booking, hold };
+      }
+
+      // Check if hold is already EXPIRED
+      if (hold.status === 'EXPIRED') {
+        const booking = bookingId
+          ? await this.bookingRepo.findById(bookingId, client)
+          : await this.bookingRepo.findByHoldId(holdId, client);
+        return { outcome: 'ALREADY_EXPIRED', booking, hold };
+      }
+
+      // 2. Fetch associated booking
+      const booking = bookingId
+        ? await this.bookingRepo.findById(bookingId, client)
+        : await this.bookingRepo.findByHoldId(holdId, client);
+
+      if (booking) {
+        if (booking.status === 'CONFIRMED') {
+          return { outcome: 'COMMITTED', booking, hold };
+        }
+
+        if (booking.status === 'CANCELLED') {
+          return { outcome: 'CANCELLED', booking, hold };
+        }
+
+        if (booking.status === 'EXPIRED') {
+          if (hold.status === 'ACTIVE') {
+            const updatedHold = await this.inventoryHoldRepo.updateStatusGuarded(
+              hold.id,
+              'ACTIVE',
+              'EXPIRED',
+              client,
+            );
+            return { outcome: 'EXPIRED', booking, hold: updatedHold ?? hold };
+          }
+          return { outcome: 'ALREADY_EXPIRED', booking, hold };
+        }
+
+        // Canonical Lock Order: departure_schedules -> bookings -> inventory_holds
+        const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
+        if (!departure) {
+          throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
+        }
+
+        const expiredBooking = await this.bookingRepo.updateStatusGuarded(
+          booking.id,
+          'AWAITING_PAYMENT',
+          'EXPIRED',
+          {},
+          client,
+        );
+
+        const expiredHold = await this.inventoryHoldRepo.updateStatusGuarded(
+          hold.id,
+          'ACTIVE',
+          'EXPIRED',
+          client,
+        );
+
+        return {
+          outcome: 'EXPIRED',
+          booking: expiredBooking ?? booking,
+          hold: expiredHold ?? hold,
+        };
+      }
+
+      // No booking attached (orphan hold):
+      const departure = await this.departureRepo.findByIdForUpdate(hold.departureId, client);
+      if (!departure) {
+        throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
+      }
+
+      const expiredHold = await this.inventoryHoldRepo.updateStatusGuarded(
+        hold.id,
+        'ACTIVE',
+        'EXPIRED',
+        client,
+      );
+
+      return {
+        outcome: 'EXPIRED',
+        booking: null,
+        hold: expiredHold ?? hold,
+      };
+    });
+  }
+
+  /**
+   * Sweeper to process a batch of expired ACTIVE holds.
+   */
+  async sweepExpiredHolds(batchSize = 100): Promise<Array<{ holdId: string; outcome: string }>> {
+    const expiredHolds = await this.inventoryHoldRepo.findExpiredActiveHolds(batchSize);
+    const results: Array<{ holdId: string; outcome: string }> = [];
+
+    for (const hold of expiredHolds) {
+      const result = await this.expireHoldAndBooking(hold.id);
+      results.push({ holdId: hold.id, outcome: result.outcome });
+    }
+
+    return results;
+  }
+
+  /**
    * Customer-isolated lookup by booking reference.
    */
   async getBookingByReference(
