@@ -230,6 +230,17 @@ export class PaymentService {
           );
           if (updated) {
             latestTx = updated;
+            if (latestTx.status === 'SUCCESS') {
+              try {
+                await this.bookingService.confirmBooking({
+                  bookingId: booking.id,
+                  paymentVerified: true,
+                  paymentTransactionId: latestTx.id,
+                });
+              } catch {
+                // Late payment after expiry or already confirmed/cancelled
+              }
+            }
           }
         }
       } catch {

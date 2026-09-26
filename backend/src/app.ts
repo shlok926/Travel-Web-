@@ -164,11 +164,15 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const availabilityService =
     dependencies.availabilityService ?? new AvailabilityService(departureRepo);
 
-  // Instantiate Booking Layer (Phase 5)
+  // Instantiate Booking & Payment Repositories
   const bookingRepo = dependencies.bookingRepo ?? new BookingRepository(db);
   const passengerRepo = dependencies.passengerRepo ?? new PassengerRepository(db);
   const idempotencyRepo = dependencies.idempotencyRepo ?? new IdempotencyRepository(db);
+  const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
+  const paymentEventRepo = dependencies.paymentEventRepo ?? new PaymentEventRepository(db);
+  const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
 
+  // Instantiate Booking Layer (Phase 5 & 6)
   const bookingService =
     dependencies.bookingService ??
     new BookingService(
@@ -181,18 +185,16 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       tourPackageRepo,
       itineraryRepo,
       destinationRepo,
+      paymentTxRepo,
     );
 
-  // Instantiate Payment Layer (Phase 6)
-  const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
-  const paymentEventRepo = dependencies.paymentEventRepo ?? new PaymentEventRepository(db);
-  const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
+  // Instantiate Payment Services (Phase 6)
   const paymentService =
     dependencies.paymentService ??
     new PaymentService(paymentTxRepo, gatewayFactory, bookingService);
   const paymentWebhookService =
     dependencies.paymentWebhookService ??
-    new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config);
+    new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config, bookingService);
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });

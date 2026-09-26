@@ -31,6 +31,10 @@ import {
 import { TourPackageRepository } from '../../catalogue/repositories/tourPackage.repository.js';
 import { ItineraryRepository } from '../../catalogue/repositories/itinerary.repository.js';
 import { DestinationRepository } from '../../catalogue/repositories/destination.repository.js';
+import {
+  PaymentTransactionEntity,
+  PaymentTransactionRepository,
+} from '../../payment/repositories/paymentTransaction.repository.js';
 import { assertBookingTransition } from '../domain/bookingStateMachine.js';
 
 // ============================================================
@@ -55,6 +59,8 @@ export interface BookingCreationResult {
 export interface ConfirmBookingCommand {
   bookingId: string;
   paymentVerified: boolean;
+  paymentTransactionId?: string;
+  paymentTransaction?: PaymentTransactionEntity;
 }
 
 export interface CancelBookingCommand {
@@ -89,6 +95,7 @@ export class BookingService {
     private readonly packageRepo: TourPackageRepository,
     private readonly itineraryRepo: ItineraryRepository,
     private readonly destinationRepo: DestinationRepository,
+    private readonly paymentTxRepo?: PaymentTransactionRepository,
   ) {}
 
   /**
@@ -382,15 +389,18 @@ export class BookingService {
   }
 
   /**
-   * Domain primitive to confirm a booking upon verified payment capture (Phase 6 hook).
+   * Authoritative domain primitive to confirm a booking upon verified payment capture (Phase 6 Step 7).
    *
    * Invariants & Pessimistic Concurrency:
-   * - Acquires departure row lock (`SELECT ... FOR UPDATE`) to preserve consistent lock ordering (`departure_schedules -> bookings -> inventory_holds`).
+   * - Acquires departure row lock (`SELECT ... FOR UPDATE`) to preserve canonical lock ordering (`departure_schedules -> bookings -> inventory_holds`).
    * - Booking must be in `AWAITING_PAYMENT` state.
-   * - Associated inventory hold must be strictly `ACTIVE` and `expiresAt > NOW()`.
-   * - Atomic guarded update: `bookings` (AWAITING_PAYMENT -> CONFIRMED).
-   * - Atomic guarded update: `inventory_holds` (ACTIVE -> COMMITTED).
+   * - Associated inventory hold must be strictly `ACTIVE`, unexpired (`expiresAt > NOW()`), match departure ID, and match booking party size.
+   * - Payment transaction (if provided or present) must belong to booking, be in `SUCCESS` status, and exactly match booking amount & currency in integer minor units.
+   * - Verifies departure capacity constraint (`booked_seats + partySize <= total_seat_capacity`).
+   * - Atomic guarded update: `bookings` (`AWAITING_PAYMENT -> CONFIRMED`).
+   * - Atomic guarded update: `inventory_holds` (`ACTIVE -> COMMITTED`).
    * - Increments `departure_schedules.booked_seats` by `partySize` exactly once.
+   * - Idempotent return if booking is already `CONFIRMED`.
    */
   async confirmBooking(command: ConfirmBookingCommand): Promise<BookingEntity> {
     if (!command.paymentVerified) {
@@ -402,26 +412,31 @@ export class BookingService {
     }
 
     return this.db.withTransaction(async (client: pg.PoolClient) => {
-      const booking = await this.bookingRepo.findById(command.bookingId, client);
-      if (!booking) {
+      // 1. Initial pre-lock booking check to retrieve departureId
+      const initialBooking = await this.bookingRepo.findById(command.bookingId, client);
+      if (!initialBooking) {
         throw AppError.notFound('Booking not found', ErrorCodes.BOOKING_NOT_FOUND);
       }
 
       // Idempotent return if already confirmed
-      if (booking.status === 'CONFIRMED') {
-        return booking;
+      if (initialBooking.status === 'CONFIRMED') {
+        return initialBooking;
       }
 
-      // Validate lifecycle state transition
-      assertBookingTransition(booking.status, 'CONFIRMED');
+      // Validate lifecycle state transition (rejects EXPIRED, CANCELLED)
+      assertBookingTransition(initialBooking.status, 'CONFIRMED');
 
-      // Acquire departure row lock first for consistent lock order: departure_schedules -> bookings -> inventory_holds
-      const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
+      // 2. Canonical Lock Order: departure_schedules -> bookings -> inventory_holds
+      // Acquire exclusive row lock on departure schedule FIRST
+      const departure = await this.departureRepo.findByIdForUpdate(
+        initialBooking.departureId,
+        client,
+      );
       if (!departure) {
         throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
       }
 
-      // Re-read booking state under departure lock in case concurrent transaction already confirmed it
+      // 3. Re-read booking state under departure lock
       const currentBooking = await this.bookingRepo.findById(command.bookingId, client);
       if (!currentBooking) {
         throw AppError.notFound('Booking not found', ErrorCodes.BOOKING_NOT_FOUND);
@@ -429,8 +444,9 @@ export class BookingService {
       if (currentBooking.status === 'CONFIRMED') {
         return currentBooking;
       }
+      assertBookingTransition(currentBooking.status, 'CONFIRMED');
 
-      // Verify inventory hold validity
+      // 4. Verify inventory hold validity under lock
       if (!currentBooking.holdId) {
         throw AppError.badRequest(
           'Booking has no associated inventory hold',
@@ -440,17 +456,121 @@ export class BookingService {
       }
 
       const hold = await this.inventoryHoldRepo.findById(currentBooking.holdId, client);
-      if (!hold || hold.status !== 'ACTIVE' || hold.expiresAt.getTime() <= Date.now()) {
+      if (!hold) {
+        throw AppError.notFound('Inventory hold not found', ErrorCodes.HOLD_NOT_FOUND);
+      }
+
+      if (hold.status !== 'ACTIVE') {
         throw AppError.badRequest(
-          'Inventory hold has expired or is invalid. Late payment cannot automatically confirm booking.',
-          [{ field: 'holdId', issue: 'Hold is expired or non-active' }],
+          `Inventory hold is not active (current status: ${hold.status}). Late payment cannot automatically confirm booking.`,
+          [{ field: 'holdId', issue: 'Hold is not active' }],
           ErrorCodes.INVENTORY_HOLD_EXPIRED,
         );
       }
 
-      // Atomic guarded transition from AWAITING_PAYMENT -> CONFIRMED
+      if (hold.expiresAt.getTime() <= Date.now()) {
+        throw AppError.badRequest(
+          'Inventory hold has expired. Late payment cannot automatically confirm booking.',
+          [{ field: 'holdId', issue: 'Hold is expired' }],
+          ErrorCodes.INVENTORY_HOLD_EXPIRED,
+        );
+      }
+
+      if (hold.departureId !== currentBooking.departureId) {
+        throw AppError.badRequest(
+          'Inventory hold does not belong to booking departure',
+          [{ field: 'departureId', issue: 'Departure mismatch between hold and booking' }],
+          ErrorCodes.VALIDATION_ERROR,
+        );
+      }
+
+      if (hold.heldSeats !== currentBooking.partySize) {
+        throw AppError.badRequest(
+          `Inventory hold seat count (${hold.heldSeats}) does not match booking party size (${currentBooking.partySize})`,
+          [
+            {
+              field: 'heldSeats',
+              issue: 'Seat count mismatch between hold and booking party size',
+            },
+          ],
+          ErrorCodes.VALIDATION_ERROR,
+        );
+      }
+
+      // 5. Payment Transaction Validation (Steps 4 & 5)
+      let paymentTx: PaymentTransactionEntity | null = command.paymentTransaction ?? null;
+      if (!paymentTx && command.paymentTransactionId && this.paymentTxRepo) {
+        paymentTx = await this.paymentTxRepo.findById(command.paymentTransactionId, client);
+        if (!paymentTx) {
+          throw AppError.notFound(
+            `Payment transaction ${command.paymentTransactionId} not found`,
+            ErrorCodes.PAYMENT_NOT_FOUND,
+          );
+        }
+      } else if (!paymentTx && this.paymentTxRepo) {
+        const transactions = await this.paymentTxRepo.findByBookingId(currentBooking.id, client);
+        if (transactions.length > 0) {
+          const successTx = transactions.find((t) => t.status === 'SUCCESS');
+          paymentTx = successTx ?? transactions[0] ?? null;
+        }
+      }
+
+      if (paymentTx) {
+        if (paymentTx.bookingId !== currentBooking.id) {
+          throw AppError.badRequest(
+            'Payment transaction does not match booking',
+            [{ field: 'bookingId', issue: 'Payment transaction belongs to another booking' }],
+            ErrorCodes.PAYMENT_INVALID_STATE,
+          );
+        }
+
+        if (paymentTx.status !== 'SUCCESS') {
+          throw AppError.badRequest(
+            `Payment transaction is in ${paymentTx.status} status. Only SUCCESS payments can confirm a booking.`,
+            [{ field: 'status', issue: `Payment status is ${paymentTx.status}, expected SUCCESS` }],
+            ErrorCodes.PAYMENT_INVALID_STATE,
+          );
+        }
+
+        if (paymentTx.amount !== currentBooking.totalPrice) {
+          throw AppError.badRequest(
+            `Payment amount mismatch: payment contains ${paymentTx.amount} minor units, booking expected ${currentBooking.totalPrice} minor units`,
+            [
+              {
+                field: 'amount',
+                issue: `Amount mismatch: expected ${currentBooking.totalPrice}, received ${paymentTx.amount}`,
+              },
+            ],
+            ErrorCodes.PAYMENT_AMOUNT_MISMATCH,
+          );
+        }
+
+        if (paymentTx.currency !== currentBooking.currency) {
+          throw AppError.badRequest(
+            `Payment currency mismatch: payment contains ${paymentTx.currency}, booking expected ${currentBooking.currency}`,
+            [
+              {
+                field: 'currency',
+                issue: `Currency mismatch: expected ${currentBooking.currency}, received ${paymentTx.currency}`,
+              },
+            ],
+            ErrorCodes.PAYMENT_CURRENCY_MISMATCH,
+          );
+        }
+      }
+
+      // 6. Departure Seat Capacity Safety Guard (Step 9)
+      if (departure.bookedSeats + currentBooking.partySize > departure.totalSeatCapacity) {
+        throw AppError.badRequest(
+          `Insufficient total seat capacity on departure (${departure.bookedSeats} booked, ${currentBooking.partySize} requested, ${departure.totalSeatCapacity} total capacity)`,
+          [{ field: 'partySize', issue: 'Requested seats would exceed total departure capacity' }],
+          ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
+        );
+      }
+
+      // 7. Atomic guarded transition from AWAITING_PAYMENT -> CONFIRMED (Step 11)
       const confirmedBooking = await this.bookingRepo.updateStatusGuarded(
-        booking.id,
+        currentBooking.id,
         'AWAITING_PAYMENT',
         'CONFIRMED',
         { confirmedAt: new Date() },
@@ -464,7 +584,7 @@ export class BookingService {
         );
       }
 
-      // Guarded atomic update on inventory hold: ACTIVE -> COMMITTED
+      // 8. Guarded atomic update on inventory hold: ACTIVE -> COMMITTED (Step 10)
       const committedHold = await this.inventoryHoldRepo.updateStatusGuarded(
         hold.id,
         'ACTIVE',
@@ -479,8 +599,12 @@ export class BookingService {
         );
       }
 
-      // Increment booked seats on departure schedule
-      await this.departureRepo.incrementBookedSeats(booking.departureId, booking.partySize, client);
+      // 9. Increment booked seats on departure schedule (Step 8 & 9)
+      await this.departureRepo.incrementBookedSeats(
+        currentBooking.departureId,
+        currentBooking.partySize,
+        client,
+      );
 
       return confirmedBooking;
     });

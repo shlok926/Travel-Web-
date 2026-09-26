@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { DatabaseService } from '../../../infrastructure/database/index.js';
 import { PaymentTransactionRepository } from '../repositories/paymentTransaction.repository.js';
 import { PaymentEventRepository } from '../repositories/paymentEvent.repository.js';
+import { BookingService } from '../../booking/services/booking.service.js';
 import { EnvConfig } from '../../../config/env.js';
 import {
   AppError,
@@ -37,6 +38,7 @@ export class PaymentWebhookService {
     private readonly paymentTxRepo: PaymentTransactionRepository,
     private readonly paymentEventRepo: PaymentEventRepository,
     private readonly config: EnvConfig,
+    private readonly bookingService?: BookingService,
   ) {}
 
   /**
@@ -221,6 +223,22 @@ export class PaymentWebhookService {
       }
 
       throw err;
+    }
+
+    // 8. Authoritative Booking Confirmation & Inventory Finalization (Phase 6 Step 7)
+    if (normalized.status === 'SUCCESS' && this.bookingService) {
+      try {
+        await this.bookingService.confirmBooking({
+          bookingId: paymentTx.bookingId,
+          paymentVerified: true,
+          paymentTransactionId: paymentTx.id,
+        });
+      } catch (err: unknown) {
+        // Late payment after expiry or concurrent expiry race:
+        // The payment transaction remains committed as SUCCESS in PostgreSQL (eligible for Step 10 refund workflow).
+        // The booking/hold remain EXPIRED (or unconfirmed).
+        // Return successful webhook response so provider does not endlessly retry.
+      }
     }
 
     return {
