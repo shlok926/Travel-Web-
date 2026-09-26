@@ -680,7 +680,7 @@ export class BookingRepository {
       return null;
     }
 
-    // 2. Fetch Manifest Passengers (CONFIRMED and AWAITING_PAYMENT active bookings)
+    // 2. Fetch Manifest Passengers (CONFIRMED bookings only)
     const passengersSql = `
       SELECT
         bp.id AS passenger_id,
@@ -698,7 +698,7 @@ export class BookingRepository {
       JOIN bookings b ON bp.booking_id = b.id
       JOIN users u ON b.customer_id = u.id
       WHERE b.departure_id = $1
-        AND b.status IN ('CONFIRMED', 'AWAITING_PAYMENT')
+        AND b.status = 'CONFIRMED'
       ORDER BY b.booking_reference ASC, bp.is_primary_contact DESC, bp.created_at ASC;
     `;
 

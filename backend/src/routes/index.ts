@@ -20,7 +20,11 @@ import {
   publicInventoryRoutes,
   adminInventoryRoutes,
 } from '../modules/inventory/index.js';
-import { BookingService, customerBookingRoutes } from '../modules/booking/index.js';
+import {
+  BookingService,
+  customerBookingRoutes,
+  adminBookingRoutes,
+} from '../modules/booking/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -99,6 +103,12 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
   if (options.bookingService) {
     await fastify.register(customerBookingRoutes, {
       prefix: '/bookings',
+      bookingService: options.bookingService,
+    });
+
+    // 9. Register Admin Booking & Manifest Routes under /api/v1/admin
+    await fastify.register(adminBookingRoutes, {
+      prefix: '/admin',
       bookingService: options.bookingService,
     });
   }
