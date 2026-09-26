@@ -750,41 +750,56 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
       expect(result.status).toBe('CANCELLED');
     });
 
-    it('cancels AWAITING_PAYMENT checkout session, releases hold, and does NOT decrement booked_seats', async () => {
+    it('rejects cancellation when departure has insufficient booked seats to decrement (invariant guard)', async () => {
       vi.mocked(mockBookingRepo.findByReferenceAndCustomer).mockResolvedValueOnce({
         ...mockBooking,
-        status: 'AWAITING_PAYMENT',
+        status: 'CONFIRMED',
       });
 
       const cancelledBooking: BookingEntity = {
         ...mockBooking,
         status: 'CANCELLED',
         cancelledAt: new Date(),
-        cancellationReason: 'Checkout abandoned',
+        cancellationReason: 'Customer requested cancellation',
       };
       vi.mocked(mockBookingRepo.updateStatusGuarded).mockResolvedValueOnce(cancelledBooking);
 
-      const result = await bookingService.cancelBooking({
-        bookingReference: sampleBookingRef,
-        customerId: sampleUserId,
+      // Simulate invariant violation where booked_seats < partySize
+      vi.mocked(mockDepartureRepo.decrementBookedSeats).mockResolvedValueOnce(null);
+
+      await expect(
+        bookingService.cancelBooking({
+          bookingReference: sampleBookingRef,
+          customerId: sampleUserId,
+        }),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
+          statusCode: 400,
+        }),
+      );
+    });
+
+    it('rejects cancellation of AWAITING_PAYMENT booking (only CONFIRMED bookings can be cancelled)', async () => {
+      vi.mocked(mockBookingRepo.findByReferenceAndCustomer).mockResolvedValueOnce({
+        ...mockBooking,
+        status: 'AWAITING_PAYMENT',
       });
 
-      expect(mockBookingRepo.updateStatusGuarded).toHaveBeenCalledWith(
-        sampleBookingId,
-        'AWAITING_PAYMENT',
-        'CANCELLED',
-        expect.anything(),
-        expect.anything(),
+      await expect(
+        bookingService.cancelBooking({
+          bookingReference: sampleBookingRef,
+          customerId: sampleUserId,
+        }),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          code: ErrorCodes.BOOKING_INVALID_STATE,
+          statusCode: 400,
+        }),
       );
 
-      expect(mockInventoryHoldRepo.releaseHold).toHaveBeenCalledWith(
-        sampleHoldId,
-        expect.anything(),
-      );
-
-      // Critical: booked_seats was never incremented, so it must not be decremented
+      expect(mockBookingRepo.updateStatusGuarded).not.toHaveBeenCalled();
       expect(mockDepartureRepo.decrementBookedSeats).not.toHaveBeenCalled();
-      expect(result.status).toBe('CANCELLED');
     });
 
     it('rejects cancellation if booking is already CANCELLED with BOOKING_ALREADY_CANCELLED', async () => {
@@ -808,7 +823,7 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
       expect(mockDepartureRepo.decrementBookedSeats).not.toHaveBeenCalled();
     });
 
-    it('rejects cancellation if booking is EXPIRED', async () => {
+    it('rejects cancellation if booking is EXPIRED with BOOKING_INVALID_STATE', async () => {
       vi.mocked(mockBookingRepo.findByReferenceAndCustomer).mockResolvedValueOnce({
         ...mockBooking,
         status: 'EXPIRED',

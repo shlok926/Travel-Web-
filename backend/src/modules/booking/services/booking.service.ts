@@ -461,9 +461,9 @@ export class BookingService {
    * Domain primitive for customer or admin cancellation.
    *
    * Invariants:
-   * - If `CONFIRMED`: guarded update to `CANCELLED` and `booked_seats -= partySize` executed strictly once.
-   * - If `AWAITING_PAYMENT`: guarded update to `CANCELLED` and hold is `RELEASED` (no booked_seats decrement).
-   * - If `EXPIRED` or already `CANCELLED`: rejected with appropriate domain error.
+   * - Strictly applies to `CONFIRMED` bookings (`CONFIRMED -> CANCELLED`).
+   * - `booked_seats -= partySize` executed strictly once with atomic invariant guard (`booked_seats >= partySize`).
+   * - If `AWAITING_PAYMENT`, `EXPIRED`, or already `CANCELLED`: rejected with appropriate domain error.
    */
   async cancelBooking(command: CancelBookingCommand): Promise<BookingEntity> {
     return this.db.withTransaction(async (client: pg.PoolClient) => {
@@ -491,77 +491,55 @@ export class BookingService {
         );
       }
 
-      if (booking.status === 'EXPIRED') {
+      if (booking.status !== 'CONFIRMED') {
         throw AppError.badRequest(
-          'Expired booking cannot be cancelled',
-          [],
+          `Cannot cancel booking in status: ${booking.status}. Only CONFIRMED bookings can be cancelled.`,
+          [{ field: 'status', issue: 'Only confirmed bookings are eligible for cancellation' }],
           ErrorCodes.BOOKING_INVALID_STATE,
         );
       }
 
-      if (booking.status === 'AWAITING_PAYMENT') {
-        // Abandoning an unconfirmed checkout session
-        const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
-          booking.id,
-          'AWAITING_PAYMENT',
-          'CANCELLED',
-          {
-            cancellationReason: command.reason ?? 'Checkout abandoned',
-            cancelledAt: new Date(),
-          },
-          client,
-        );
+      assertBookingTransition(booking.status, 'CANCELLED');
 
-        if (!cancelledBooking) {
-          throw AppError.conflict(
-            'Booking was concurrently modified',
-            ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
-          );
-        }
-
-        if (booking.holdId) {
-          await this.inventoryHoldRepo.releaseHold(booking.holdId, client);
-        }
-
-        return cancelledBooking;
-      }
-
-      if (booking.status === 'CONFIRMED') {
-        assertBookingTransition(booking.status, 'CANCELLED');
-
-        const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
-          booking.id,
-          'CONFIRMED',
-          'CANCELLED',
-          {
-            cancellationReason: command.reason ?? 'Customer requested cancellation',
-            cancelledAt: new Date(),
-          },
-          client,
-        );
-
-        if (!cancelledBooking) {
-          throw AppError.conflict(
-            'Booking was concurrently modified',
-            ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
-          );
-        }
-
-        // Single-decrement invariant: decrement booked seats strictly once
-        await this.departureRepo.decrementBookedSeats(
-          booking.departureId,
-          booking.partySize,
-          client,
-        );
-
-        return cancelledBooking;
-      }
-
-      throw AppError.badRequest(
-        `Cannot cancel booking in status: ${booking.status}`,
-        [],
-        ErrorCodes.BOOKING_INVALID_STATE,
+      const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
+        booking.id,
+        'CONFIRMED',
+        'CANCELLED',
+        {
+          cancellationReason: command.reason ?? 'Customer requested cancellation',
+          cancelledAt: new Date(),
+        },
+        client,
       );
+
+      if (!cancelledBooking) {
+        throw AppError.conflict(
+          'Booking was concurrently modified',
+          ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
+        );
+      }
+
+      // Single-decrement invariant: decrement booked seats strictly once with atomic invariant check
+      const updatedDeparture = await this.departureRepo.decrementBookedSeats(
+        booking.departureId,
+        booking.partySize,
+        client,
+      );
+
+      if (!updatedDeparture) {
+        throw AppError.badRequest(
+          'Failed to decrement booked seats: insufficient booked seats on departure schedule',
+          [
+            {
+              field: 'bookedSeats',
+              issue: 'Insufficient booked seats to satisfy cancellation decrement',
+            },
+          ],
+          ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
+        );
+      }
+
+      return cancelledBooking;
     });
   }
 

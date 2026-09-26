@@ -11,13 +11,15 @@ describe('Phase 5 Step 4 — Booking State Machine Domain Logic', () => {
   describe('State Transition Rules Matrix', () => {
     it('allows valid transitions from AWAITING_PAYMENT', () => {
       expect(canTransitionBooking('AWAITING_PAYMENT', 'CONFIRMED')).toBe(true);
-      expect(canTransitionBooking('AWAITING_PAYMENT', 'CANCELLED')).toBe(true);
       expect(canTransitionBooking('AWAITING_PAYMENT', 'EXPIRED')).toBe(true);
+      expect(canTransitionBooking('AWAITING_PAYMENT', 'CANCELLED')).toBe(false);
 
-      // Should not throw
+      // Should not throw on valid
       expect(() => assertBookingTransition('AWAITING_PAYMENT', 'CONFIRMED')).not.toThrow();
-      expect(() => assertBookingTransition('AWAITING_PAYMENT', 'CANCELLED')).not.toThrow();
       expect(() => assertBookingTransition('AWAITING_PAYMENT', 'EXPIRED')).not.toThrow();
+
+      // Should throw on forbidden CANCELLED transition
+      expect(() => assertBookingTransition('AWAITING_PAYMENT', 'CANCELLED')).toThrowError(AppError);
     });
 
     it('allows valid transitions from CONFIRMED', () => {

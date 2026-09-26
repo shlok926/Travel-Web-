@@ -399,7 +399,7 @@ export class DepartureRepository {
 
   /**
    * Decrement confirmed booked seats on a departure schedule upon booking cancellation.
-   * Atomically ensures booked_seats never goes below zero.
+   * Atomically enforces booked_seats >= seatCount invariant (prevents masking inventory corruption).
    */
   async decrementBookedSeats(
     id: string,
@@ -408,9 +408,9 @@ export class DepartureRepository {
   ): Promise<DepartureEntity | null> {
     const sql = `
       UPDATE departure_schedules
-      SET booked_seats = GREATEST(0, booked_seats - $2),
+      SET booked_seats = booked_seats - $2,
           updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND booked_seats >= $2
       RETURNING ${DEPARTURE_PROJECTION};
     `;
 

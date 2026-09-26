@@ -419,4 +419,134 @@ describe('Phase 5 Step 4 — Booking Domain Services (PostgreSQL Integration & C
     const dep = await departureRepo.findById(departure.id);
     expect(dep?.bookedSeats).toBe(0);
   });
+
+  it('5. Rejects cancellation of AWAITING_PAYMENT booking (only CONFIRMED is eligible)', async () => {
+    if (!isDbAvailable || !db) return;
+
+    const departure = await departureRepo.create({
+      packageId: testPackageId,
+      departureDate: '2027-01-10',
+      returnDate: '2027-01-15',
+      totalSeatCapacity: 6,
+      currency: 'INR',
+      status: 'OPEN',
+    });
+
+    const creation = await bookingService.createBooking({
+      userId: testUserId,
+      endpointScope: 'POST:/api/v1/bookings',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: 'hash-unpaid-cancel',
+      bookingData: {
+        departureId: departure.id,
+        partySize: 2,
+        adultCount: 2,
+        childCount: 0,
+        primaryContact: {
+          name: 'Unpaid User',
+          email: 'unpaid@example.com',
+          phone: '+919999933333',
+        },
+        passengers: [
+          {
+            passengerType: 'ADULT',
+            fullName: 'Passenger A',
+            ageAtBooking: 29,
+            gender: 'FEMALE',
+            isPrimaryContact: true,
+          },
+          {
+            passengerType: 'ADULT',
+            fullName: 'Passenger B',
+            ageAtBooking: 31,
+            gender: 'MALE',
+            isPrimaryContact: false,
+          },
+        ],
+      },
+    });
+
+    await expect(
+      bookingService.cancelBooking({
+        bookingReference: creation.booking.bookingReference,
+        customerId: testUserId,
+      }),
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        code: ErrorCodes.BOOKING_INVALID_STATE,
+        statusCode: 400,
+      }),
+    );
+  });
+
+  it('6. Cancellation fails if departure booked_seats < partySize (atomic invariant guard)', async () => {
+    if (!isDbAvailable || !db) return;
+
+    const departure = await departureRepo.create({
+      packageId: testPackageId,
+      departureDate: '2027-02-01',
+      returnDate: '2027-02-06',
+      totalSeatCapacity: 4,
+      currency: 'INR',
+      status: 'OPEN',
+    });
+
+    const creation = await bookingService.createBooking({
+      userId: testUserId,
+      endpointScope: 'POST:/api/v1/bookings',
+      idempotencyKey: crypto.randomUUID(),
+      requestHash: 'hash-corrupt-inv',
+      bookingData: {
+        departureId: departure.id,
+        partySize: 2,
+        adultCount: 2,
+        childCount: 0,
+        primaryContact: {
+          name: 'Invariant User',
+          email: 'invariant@example.com',
+          phone: '+919999944444',
+        },
+        passengers: [
+          {
+            passengerType: 'ADULT',
+            fullName: 'Pass A',
+            ageAtBooking: 25,
+            gender: 'MALE',
+            isPrimaryContact: true,
+          },
+          {
+            passengerType: 'ADULT',
+            fullName: 'Pass B',
+            ageAtBooking: 26,
+            gender: 'FEMALE',
+            isPrimaryContact: false,
+          },
+        ],
+      },
+    });
+
+    // Confirm booking
+    await bookingService.confirmBooking({
+      bookingId: creation.booking.id,
+      paymentVerified: true,
+    });
+
+    // Corrupt departure booked_seats to 0 (less than booking partySize 2)
+    await db.query(`UPDATE departure_schedules SET booked_seats = 0 WHERE id = $1;`, [
+      departure.id,
+    ]);
+
+    // Cancellation attempt must fail rather than silently clamping
+    await expect(
+      bookingService.cancelBooking({
+        bookingReference: creation.booking.bookingReference,
+        customerId: testUserId,
+      }),
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        code: ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
+        statusCode: 400,
+      }),
+    );
+  });
 });
