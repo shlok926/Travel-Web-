@@ -25,7 +25,12 @@ import {
   customerBookingRoutes,
   adminBookingRoutes,
 } from '../modules/booking/index.js';
-import { PaymentService, paymentRoutes } from '../modules/payment/index.js';
+import {
+  PaymentService,
+  PaymentWebhookService,
+  paymentRoutes,
+  webhookRoutes,
+} from '../modules/payment/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -40,6 +45,7 @@ export interface ApiRoutesOptions {
   availabilityService?: AvailabilityService;
   bookingService?: BookingService;
   paymentService?: PaymentService;
+  paymentWebhookService?: PaymentWebhookService;
   config?: EnvConfig;
 }
 
@@ -120,6 +126,14 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(paymentRoutes, {
       prefix: '/payments',
       paymentService: options.paymentService,
+    });
+  }
+
+  // 11. Register Webhook Routes under /api/v1/webhooks (Phase 6 Step 6)
+  if (options.paymentWebhookService) {
+    await fastify.register(webhookRoutes, {
+      prefix: '/webhooks',
+      webhookService: options.paymentWebhookService,
     });
   }
 };

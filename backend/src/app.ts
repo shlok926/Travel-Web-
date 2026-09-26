@@ -32,8 +32,10 @@ import {
 } from './modules/booking/index.js';
 import {
   PaymentTransactionRepository,
+  PaymentEventRepository,
   PaymentGatewayFactory,
   PaymentService,
+  PaymentWebhookService,
 } from './modules/payment/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
@@ -68,8 +70,10 @@ export interface AppDependencies {
   idempotencyRepo?: IdempotencyRepository;
   bookingService?: BookingService;
   paymentTxRepo?: PaymentTransactionRepository;
+  paymentEventRepo?: PaymentEventRepository;
   gatewayFactory?: PaymentGatewayFactory;
   paymentService?: PaymentService;
+  paymentWebhookService?: PaymentWebhookService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -86,6 +90,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   availabilityService: AvailabilityService;
   bookingService: BookingService;
   paymentService: PaymentService;
+  paymentWebhookService: PaymentWebhookService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -109,6 +114,20 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
             },
           },
     requestTimeout: 15000,
+  });
+
+  // Preserve raw request body on (req as any).rawBody for cryptographic HMAC webhook verification
+  app.addContentTypeParser(/^application\/json/, { parseAs: 'buffer' }, (req, body, done) => {
+    try {
+      const rawString = body.toString('utf-8');
+      (req as any).rawBody = rawString;
+      const json = rawString.trim().length > 0 ? JSON.parse(rawString) : {};
+      done(null, json);
+    } catch (err: unknown) {
+      const syntaxError = err as Error & { statusCode?: number };
+      syntaxError.statusCode = 400;
+      done(syntaxError, undefined);
+    }
   });
 
   // Instantiate Infrastructure Services
@@ -166,10 +185,14 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
 
   // Instantiate Payment Layer (Phase 6)
   const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
+  const paymentEventRepo = dependencies.paymentEventRepo ?? new PaymentEventRepository(db);
   const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
   const paymentService =
     dependencies.paymentService ??
     new PaymentService(paymentTxRepo, gatewayFactory, bookingService);
+  const paymentWebhookService =
+    dependencies.paymentWebhookService ??
+    new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config);
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
@@ -200,6 +223,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     availabilityService,
     bookingService,
     paymentService,
+    paymentWebhookService,
     config,
   });
 
@@ -217,6 +241,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     availabilityService,
     bookingService,
     paymentService,
+    paymentWebhookService,
     config,
   };
 }
