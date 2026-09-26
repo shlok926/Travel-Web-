@@ -111,6 +111,46 @@ describe('Phase 6 Step 5 — Payment Domain Service (Unit & Invariants)', () => 
       );
     });
 
+    it('1.1b regression: preserves canonical integer minor units (150000 paise = ₹1,500.00) without 100x multiplication', async () => {
+      const bookingWith1500 = {
+        ...sampleBooking,
+        totalPrice: 150000, // 150000 paise (₹1,500.00)
+      };
+
+      vi.spyOn(bookingService, 'getBookingByReference').mockResolvedValueOnce({
+        booking: bookingWith1500,
+        passengers: [],
+        holdExpiresAt: new Date(Date.now() + 600000).toISOString(),
+      });
+
+      const adapterSpy = vi.spyOn(mockAdapter, 'createPaymentOrder');
+
+      const result = await paymentService.initiatePayment({
+        userId: 'user-123',
+        bookingReference: 'BK-20261115-UNIT',
+      });
+
+      // 1. Transaction creation receives exactly 150000 (NOT 15000000)
+      expect(paymentTxRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 150000,
+          currency: 'INR',
+        }),
+      );
+
+      // 2. Gateway adapter receives exactly 150000 (NOT 15000000)
+      expect(adapterSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 150000,
+          currency: 'INR',
+        }),
+      );
+
+      // 3. Returned payload contains exactly 150000
+      expect(result.amount).toBe(150000);
+      expect(result.amount).not.toBe(15000000);
+    });
+
     it('1.2 rejects payment initiation when booking is already CONFIRMED', async () => {
       vi.spyOn(bookingService, 'getBookingByReference').mockResolvedValueOnce({
         booking: { ...sampleBooking, status: 'CONFIRMED' as any },
