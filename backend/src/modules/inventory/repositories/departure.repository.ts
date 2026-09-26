@@ -398,6 +398,28 @@ export class DepartureRepository {
   }
 
   /**
+   * Decrement confirmed booked seats on a departure schedule upon booking cancellation.
+   * Atomically ensures booked_seats never goes below zero.
+   */
+  async decrementBookedSeats(
+    id: string,
+    seatCount: number,
+    client: pg.PoolClient,
+  ): Promise<DepartureEntity | null> {
+    const sql = `
+      UPDATE departure_schedules
+      SET booked_seats = GREATEST(0, booked_seats - $2),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${DEPARTURE_PROJECTION};
+    `;
+
+    const result = await client.query<DepartureRow>(sql, [id, seatCount]);
+    const row = result.rows[0];
+    return row ? mapRowToDepartureEntity(row) : null;
+  }
+
+  /**
    * Delete a departure schedule if no bookings exist.
    */
   async delete(id: string, client?: pg.PoolClient): Promise<boolean> {

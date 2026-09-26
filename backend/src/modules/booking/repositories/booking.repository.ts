@@ -107,6 +107,31 @@ export interface BookingSummaryRow {
   total_count?: string | number;
 }
 
+export interface BookingListOptions {
+  page?: number;
+  limit?: number;
+  status?: BookingStatus;
+}
+
+export interface BookingListResult {
+  bookings: BookingSummaryEntity[];
+  total: number;
+}
+
+export interface AdminBookingListOptions {
+  page?: number;
+  limit?: number;
+  status?: BookingStatus;
+  departureId?: string;
+  customerId?: string;
+  search?: string;
+}
+
+export interface AdminBookingListResult {
+  bookings: BookingSummaryEntity[];
+  total: number;
+}
+
 export interface CreateBookingData {
   id?: string;
   bookingReference: string;
