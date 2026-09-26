@@ -877,6 +877,10 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
         bookingId: sampleBookingId,
       });
 
+      expect(mockDepartureRepo.findByIdForUpdate).toHaveBeenCalledWith(
+        sampleDepartureId,
+        expect.anything(),
+      );
       expect(mockBookingRepo.updateStatusGuarded).toHaveBeenCalledWith(
         sampleBookingId,
         'AWAITING_PAYMENT',

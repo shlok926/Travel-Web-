@@ -585,6 +585,12 @@ export class BookingService {
 
       assertBookingTransition(booking.status, 'EXPIRED');
 
+      // Canonical Lock Order: departure_schedules -> bookings -> inventory_holds
+      const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
+      if (!departure) {
+        throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
+      }
+
       const expiredBooking = await this.bookingRepo.updateStatusGuarded(
         booking.id,
         'AWAITING_PAYMENT',
