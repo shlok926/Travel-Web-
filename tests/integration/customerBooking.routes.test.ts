@@ -120,6 +120,10 @@ describe('Phase 5 Step 6 — Customer Booking REST APIs & Controllers (Integrati
       await app.close();
     }
     if (db && isDbAvailable) {
+      await db.query(`DELETE FROM tax_invoices;`);
+      await db.query(`DELETE FROM ticket_vouchers;`);
+      await db.query(`DELETE FROM payment_events;`);
+      await db.query(`DELETE FROM payment_transactions;`);
       await db.query(`DELETE FROM idempotency_keys;`);
       await db.query(`DELETE FROM booking_passengers;`);
       await db.query(`DELETE FROM bookings;`);

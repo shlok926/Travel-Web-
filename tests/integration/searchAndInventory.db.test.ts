@@ -52,6 +52,9 @@ describe('Phase 4 Step 3 — Search & Inventory Repositories (PostgreSQL Integra
     if (db) {
       if (isDbAvailable) {
         // Clean up child tables in reverse foreign key order
+        await db.query(`DELETE FROM tax_invoices;`);
+        await db.query(`DELETE FROM ticket_vouchers;`);
+        await db.query(`DELETE FROM payment_events;`);
         await db.query(`DELETE FROM payment_transactions;`);
         await db.query(`DELETE FROM bookings;`);
         await db.query(`DELETE FROM inventory_holds;`);

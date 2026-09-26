@@ -156,6 +156,10 @@ describe('Phase 5 Step 8 — Background Inventory Hold Expiry Worker & Concurren
 
   afterAll(async () => {
     if (db && isDbAvailable) {
+      await db.query(`DELETE FROM tax_invoices;`);
+      await db.query(`DELETE FROM ticket_vouchers;`);
+      await db.query(`DELETE FROM payment_events;`);
+      await db.query(`DELETE FROM payment_transactions;`);
       await db.query(`DELETE FROM idempotency_keys;`);
       await db.query(`DELETE FROM booking_passengers;`);
       await db.query(`DELETE FROM bookings;`);

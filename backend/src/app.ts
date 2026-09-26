@@ -37,6 +37,12 @@ import {
   PaymentService,
   PaymentWebhookService,
 } from './modules/payment/index.js';
+import {
+  TaxInvoiceRepository,
+  TicketVoucherRepository,
+  PdfGeneratorService,
+  DocumentService,
+} from './modules/document/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -74,6 +80,10 @@ export interface AppDependencies {
   gatewayFactory?: PaymentGatewayFactory;
   paymentService?: PaymentService;
   paymentWebhookService?: PaymentWebhookService;
+  taxInvoiceRepo?: TaxInvoiceRepository;
+  ticketVoucherRepo?: TicketVoucherRepository;
+  pdfGenerator?: PdfGeneratorService;
+  documentService?: DocumentService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -91,6 +101,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   bookingService: BookingService;
   paymentService: PaymentService;
   paymentWebhookService: PaymentWebhookService;
+  taxInvoiceRepo: TaxInvoiceRepository;
+  ticketVoucherRepo: TicketVoucherRepository;
+  documentService: DocumentService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -196,6 +209,23 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     dependencies.paymentWebhookService ??
     new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config, bookingService);
 
+  // Instantiate Document Services (Phase 6 Step 8)
+  const taxInvoiceRepo = dependencies.taxInvoiceRepo ?? new TaxInvoiceRepository(db);
+  const ticketVoucherRepo = dependencies.ticketVoucherRepo ?? new TicketVoucherRepository(db);
+  const pdfGenerator = dependencies.pdfGenerator ?? new PdfGeneratorService();
+  const documentService =
+    dependencies.documentService ??
+    new DocumentService(
+      bookingRepo,
+      passengerRepo,
+      paymentTxRepo,
+      taxInvoiceRepo,
+      ticketVoucherRepo,
+      storage,
+      pdfGenerator,
+      config.S3_BUCKET_PRIVATE,
+    );
+
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
@@ -244,6 +274,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     bookingService,
     paymentService,
     paymentWebhookService,
+    taxInvoiceRepo,
+    ticketVoucherRepo,
+    documentService,
     config,
   };
 }
