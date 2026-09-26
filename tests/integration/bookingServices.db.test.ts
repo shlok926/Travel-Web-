@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import {
   DatabaseService,
@@ -87,15 +87,39 @@ describe('Phase 5 Step 4 — Booking Domain Services (PostgreSQL Integration & C
     }
   });
 
+  beforeEach(async () => {
+    if (db && isDbAvailable) {
+      await db.query(`DELETE FROM refund_settlements;`);
+      await db.query(`DELETE FROM cancellation_requests;`);
+      await db.query(`DELETE FROM tax_invoices;`);
+      await db.query(`DELETE FROM ticket_vouchers;`);
+      await db.query(`DELETE FROM payment_transactions;`);
+      await db.query(`DELETE FROM idempotency_keys;`);
+      await db.query(`DELETE FROM booking_passengers;`);
+      await db.query(`DELETE FROM bookings;`);
+      await db.query(`DELETE FROM inventory_holds;`);
+      await db.query(
+        `DELETE FROM departure_schedules WHERE departure_date IN ('2026-12-01', '2027-01-10', '2027-01-16');`,
+      );
+    }
+  });
+
   afterAll(async () => {
     if (db) {
       if (isDbAvailable) {
         // Clean up test data in reverse foreign-key order
+        await db.query(`DELETE FROM refund_settlements;`);
+        await db.query(`DELETE FROM cancellation_requests;`);
+        await db.query(`DELETE FROM tax_invoices;`);
+        await db.query(`DELETE FROM ticket_vouchers;`);
+        await db.query(`DELETE FROM payment_transactions;`);
         await db.query(`DELETE FROM idempotency_keys;`);
         await db.query(`DELETE FROM booking_passengers;`);
         await db.query(`DELETE FROM bookings;`);
         await db.query(`DELETE FROM inventory_holds;`);
-        await db.query(`DELETE FROM departure_schedules WHERE total_seat_capacity = 2;`);
+        await db.query(
+          `DELETE FROM departure_schedules WHERE departure_date IN ('2026-12-01', '2027-01-10', '2027-01-16');`,
+        );
       }
       await db.close();
     }
@@ -425,8 +449,8 @@ describe('Phase 5 Step 4 — Booking Domain Services (PostgreSQL Integration & C
 
     const departure = await departureRepo.create({
       packageId: testPackageId,
-      departureDate: '2027-01-10',
-      returnDate: '2027-01-15',
+      departureDate: '2027-01-16',
+      returnDate: '2027-01-21',
       totalSeatCapacity: 6,
       currency: 'INR',
       status: 'OPEN',

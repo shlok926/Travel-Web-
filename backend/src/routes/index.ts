@@ -25,6 +25,7 @@ import {
   customerBookingRoutes,
   adminBookingRoutes,
 } from '../modules/booking/index.js';
+import { PaymentService, paymentRoutes } from '../modules/payment/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -38,6 +39,7 @@ export interface ApiRoutesOptions {
   departureService?: DepartureService;
   availabilityService?: AvailabilityService;
   bookingService?: BookingService;
+  paymentService?: PaymentService;
   config?: EnvConfig;
 }
 
@@ -110,6 +112,14 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(adminBookingRoutes, {
       prefix: '/admin',
       bookingService: options.bookingService,
+    });
+  }
+
+  // 10. Register Payment Routes under /api/v1/payments (Phase 6)
+  if (options.paymentService) {
+    await fastify.register(paymentRoutes, {
+      prefix: '/payments',
+      paymentService: options.paymentService,
     });
   }
 };

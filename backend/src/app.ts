@@ -30,6 +30,11 @@ import {
   IdempotencyRepository,
   BookingService,
 } from './modules/booking/index.js';
+import {
+  PaymentTransactionRepository,
+  PaymentGatewayFactory,
+  PaymentService,
+} from './modules/payment/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -62,6 +67,9 @@ export interface AppDependencies {
   passengerRepo?: PassengerRepository;
   idempotencyRepo?: IdempotencyRepository;
   bookingService?: BookingService;
+  paymentTxRepo?: PaymentTransactionRepository;
+  gatewayFactory?: PaymentGatewayFactory;
+  paymentService?: PaymentService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -77,6 +85,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   departureService: DepartureService;
   availabilityService: AvailabilityService;
   bookingService: BookingService;
+  paymentService: PaymentService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -155,6 +164,13 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       destinationRepo,
     );
 
+  // Instantiate Payment Layer (Phase 6)
+  const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
+  const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
+  const paymentService =
+    dependencies.paymentService ??
+    new PaymentService(paymentTxRepo, gatewayFactory, bookingService);
+
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
@@ -183,6 +199,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     departureService,
     availabilityService,
     bookingService,
+    paymentService,
     config,
   });
 
@@ -199,6 +216,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     departureService,
     availabilityService,
     bookingService,
+    paymentService,
     config,
   };
 }
