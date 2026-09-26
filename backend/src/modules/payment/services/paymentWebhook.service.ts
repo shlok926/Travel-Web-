@@ -107,19 +107,12 @@ export class PaymentWebhookService {
       );
     }
 
-    // If no matching transaction found, persist event for audit and return safe response
+    // If no matching transaction found, throw PAYMENT_NOT_FOUND so provider retries when transaction is available
     if (!paymentTx) {
-      await this.persistEventSafely(normalized);
-
-      return {
-        success: true,
-        duplicate: false,
-        matched: false,
-        eventId: normalized.eventId,
-        eventType: normalized.eventType,
-        provider: normalized.provider as PaymentProvider,
-        message: 'Webhook received and recorded, but no matching local payment transaction found',
-      };
+      throw AppError.notFound(
+        `No matching payment transaction found for provider ${normalized.provider} (orderId: ${normalized.gatewayOrderId ?? 'none'}, paymentId: ${normalized.gatewayPaymentId ?? 'none'})`,
+        ErrorCodes.PAYMENT_NOT_FOUND,
+      );
     }
 
     // 6. Financial Integrity Validation (Integer minor units, no floats, no x100 multiplication)
@@ -181,10 +174,14 @@ export class PaymentWebhookService {
             );
           }
         } else if (normalized.status === 'REFUNDED') {
-          if (paymentTx.status === 'SUCCESS') {
+          if (
+            paymentTx.status === 'SUCCESS' ||
+            paymentTx.status === 'PENDING' ||
+            paymentTx.status === 'INITIATED'
+          ) {
             await this.paymentTxRepo.updateStatusGuarded(
               paymentTx.id,
-              'SUCCESS',
+              ['SUCCESS', 'PENDING', 'INITIATED'],
               'REFUNDED',
               client,
             );
@@ -528,22 +525,5 @@ export class PaymentWebhookService {
       payload: json,
       processedAt,
     };
-  }
-
-  /**
-   * Persists an unmatched event in payment_events for audit.
-   */
-  private async persistEventSafely(normalized: NormalizedWebhookEvent): Promise<void> {
-    try {
-      await this.paymentEventRepo.create({
-        provider: normalized.provider,
-        eventId: normalized.eventId,
-        eventType: normalized.eventType,
-        payload: normalized.payload,
-        processedAt: new Date(),
-      });
-    } catch {
-      // Ignore unique constraint violation if event was recorded concurrently
-    }
   }
 }

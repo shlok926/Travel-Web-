@@ -459,5 +459,185 @@ describe('Phase 6 Step 6 — Payment Webhook Processing & HMAC Verification (Int
       const eventRecorded = await paymentEventRepo.exists('MOCK', 'evt_orig_');
       expect(typeof eventRecorded).toBe('boolean');
     });
+
+    it('4.2 transitions payment transaction from SUCCESS to REFUNDED upon verified refund event', async () => {
+      if (!isDbAvailable) return;
+
+      const refundEventId = `evt_whk_refund_${Date.now()}`;
+      const rawPayload = JSON.stringify({
+        eventId: refundEventId,
+        eventType: 'payment.refunded',
+        gatewayOrderId: testOrderId,
+        amount: 150000,
+        currency: 'INR',
+        status: 'REFUNDED',
+      });
+
+      const signature = crypto.createHmac('sha256', webhookSecret).update(rawPayload).digest('hex');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/payment',
+        headers: {
+          'content-type': 'application/json',
+          'x-mock-signature': signature,
+        },
+        payload: rawPayload,
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+
+      // Verify transaction is now REFUNDED
+      const transactions = await paymentTxRepo.findByBookingId(testBookingId);
+      const tx = transactions.find((t) => t.gatewayOrderId === testOrderId);
+      expect(tx?.status).toBe('REFUNDED');
+
+      // Verify booking is STILL unchanged
+      const booking = await bookingRepo.findByReference(testBookingRef);
+      expect(booking?.status).toBe('AWAITING_PAYMENT');
+    });
+
+    it('4.3 returns 404 PAYMENT_NOT_FOUND when transaction is not matched without polluting payment_events', async () => {
+      if (!isDbAvailable) return;
+
+      const unknownEventId = `evt_unknown_tx_${Date.now()}`;
+      const rawPayload = JSON.stringify({
+        eventId: unknownEventId,
+        eventType: 'payment.succeeded',
+        gatewayOrderId: 'order_nonexistent_99999',
+        amount: 150000,
+        currency: 'INR',
+        status: 'SUCCESS',
+      });
+
+      const signature = crypto.createHmac('sha256', webhookSecret).update(rawPayload).digest('hex');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/payment',
+        headers: {
+          'content-type': 'application/json',
+          'x-mock-signature': signature,
+        },
+        payload: rawPayload,
+      });
+
+      expect(res.statusCode).toBe(404);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe('PAYMENT_NOT_FOUND');
+
+      // Event was NOT inserted in payment_events so provider retry can succeed later
+      const exists = await paymentEventRepo.exists('MOCK', unknownEventId);
+      expect(exists).toBe(false);
+    });
+
+    it('4.4 verifies provider-specific Razorpay webhook signature (x-razorpay-signature)', async () => {
+      if (!isDbAvailable) return;
+
+      const rzpOrderId = `order_rzp_${Date.now()}`;
+      // Create local payment transaction for Razorpay
+      await paymentTxRepo.create({
+        bookingId: testBookingId,
+        provider: 'RAZORPAY',
+        gatewayOrderId: rzpOrderId,
+        amount: 150000,
+        currency: 'INR',
+        status: 'PENDING',
+      });
+
+      const rzpPayload = JSON.stringify({
+        event: 'payment.captured',
+        payload: {
+          payment: {
+            entity: {
+              id: `pay_rzp_${Date.now()}`,
+              order_id: rzpOrderId,
+              amount: 150000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      const rzpSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(rzpPayload)
+        .digest('hex');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/payment/razorpay',
+        headers: {
+          'content-type': 'application/json',
+          'x-razorpay-signature': rzpSignature,
+        },
+        payload: rzpPayload,
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.data.provider).toBe('RAZORPAY');
+
+      // Verify transaction is SUCCESS
+      const tx = await paymentTxRepo.findByProviderOrderId('RAZORPAY', rzpOrderId);
+      expect(tx?.status).toBe('SUCCESS');
+    });
+
+    it('4.5 verifies provider-specific Stripe webhook signature with timestamp (stripe-signature)', async () => {
+      if (!isDbAvailable) return;
+
+      const stripePiId = `pi_test_${Date.now()}`;
+      // Create local payment transaction for Stripe
+      await paymentTxRepo.create({
+        bookingId: testBookingId,
+        provider: 'STRIPE',
+        gatewayOrderId: stripePiId,
+        amount: 150000,
+        currency: 'INR',
+        status: 'PENDING',
+      });
+
+      const stripePayload = JSON.stringify({
+        id: `evt_stripe_${Date.now()}`,
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: stripePiId,
+            amount: 150000,
+            currency: 'inr',
+            status: 'succeeded',
+            latest_charge: `ch_stripe_${Date.now()}`,
+          },
+        },
+      });
+
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const signedPayload = `${timestamp}.${stripePayload}`;
+      const sigHex = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/payment/stripe',
+        headers: {
+          'content-type': 'application/json',
+          'stripe-signature': `t=${timestamp},v1=${sigHex}`,
+        },
+        payload: stripePayload,
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.data.provider).toBe('STRIPE');
+
+      // Verify transaction is SUCCESS
+      const tx = await paymentTxRepo.findByProviderOrderId('STRIPE', stripePiId);
+      expect(tx?.status).toBe('SUCCESS');
+    });
   });
 });

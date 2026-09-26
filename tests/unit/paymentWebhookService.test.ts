@@ -366,7 +366,7 @@ describe('Phase 6 Step 6 — Payment Webhook Service (Unit & Security Invariants
       );
     });
 
-    it('4.2 records unmatched webhook event without crashing or modifying random state', async () => {
+    it('4.2 throws PAYMENT_NOT_FOUND when transaction is unmatched and does not pollute payment_events', async () => {
       vi.spyOn(paymentTxRepo, 'findByProviderOrderId').mockResolvedValueOnce(null);
       vi.spyOn(paymentTxRepo, 'findByProviderPaymentId').mockResolvedValueOnce(null);
 
@@ -383,6 +383,38 @@ describe('Phase 6 Step 6 — Payment Webhook Service (Unit & Security Invariants
         .update(rawPayload)
         .digest('hex');
 
+      try {
+        await webhookService.processWebhook({
+          rawBody: rawPayload,
+          headers: { 'x-mock-signature': signature },
+          paramProvider: 'MOCK',
+        });
+        expect.unreachable('Should have thrown');
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe(ErrorCodes.PAYMENT_NOT_FOUND);
+        expect((err as AppError).statusCode).toBe(404);
+        // payment_events is NOT inserted so provider can safely retry when transaction exists
+        expect(paymentEventRepo.create).not.toHaveBeenCalled();
+      }
+    });
+
+    it('4.3 transitions payment transaction to REFUNDED upon verified refund webhook', async () => {
+      const rawPayload = JSON.stringify({
+        eventId: 'evt_mock_refund_001',
+        eventType: 'payment.refunded',
+        gatewayOrderId: 'order_mock_12345',
+        gatewayPaymentId: 'pay_mock_refund_999',
+        amount: 150000,
+        currency: 'INR',
+        status: 'REFUNDED',
+      });
+
+      const signature = crypto
+        .createHmac('sha256', mockConfig.PAYMENT_WEBHOOK_SECRET!)
+        .update(rawPayload)
+        .digest('hex');
+
       const result = await webhookService.processWebhook({
         rawBody: rawPayload,
         headers: { 'x-mock-signature': signature },
@@ -390,12 +422,45 @@ describe('Phase 6 Step 6 — Payment Webhook Service (Unit & Security Invariants
       });
 
       expect(result.success).toBe(true);
-      expect(result.matched).toBe(false);
-      expect(paymentEventRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventId: 'evt_mock_unmatched',
-          provider: 'MOCK',
-        }),
+      expect(result.status).toBe('REFUNDED');
+      expect(paymentTxRepo.updateStatusGuarded).toHaveBeenCalledWith(
+        sampleTx.id,
+        ['SUCCESS', 'PENDING', 'INITIATED'],
+        'REFUNDED',
+        expect.anything(),
+      );
+    });
+
+    it('4.4 handles PENDING to REFUNDED transition directly from provider chargeback/refund', async () => {
+      const pendingTx = { ...sampleTx, status: 'PENDING' as const };
+      vi.spyOn(paymentTxRepo, 'findByProviderOrderId').mockResolvedValueOnce(pendingTx);
+
+      const rawPayload = JSON.stringify({
+        eventId: 'evt_mock_refund_pending',
+        eventType: 'refund.processed',
+        gatewayOrderId: 'order_mock_12345',
+        amount: 150000,
+        currency: 'INR',
+      });
+
+      const signature = crypto
+        .createHmac('sha256', mockConfig.PAYMENT_WEBHOOK_SECRET!)
+        .update(rawPayload)
+        .digest('hex');
+
+      const result = await webhookService.processWebhook({
+        rawBody: rawPayload,
+        headers: { 'x-mock-signature': signature },
+        paramProvider: 'MOCK',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('REFUNDED');
+      expect(paymentTxRepo.updateStatusGuarded).toHaveBeenCalledWith(
+        pendingTx.id,
+        ['SUCCESS', 'PENDING', 'INITIATED'],
+        'REFUNDED',
+        expect.anything(),
       );
     });
   });
