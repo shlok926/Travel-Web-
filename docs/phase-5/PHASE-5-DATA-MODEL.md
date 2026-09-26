@@ -54,9 +54,9 @@ CREATE TABLE bookings (
     departure_id UUID NOT NULL REFERENCES departure_schedules(id) ON DELETE RESTRICT,
     hold_id UUID REFERENCES inventory_holds(id) ON DELETE SET NULL,
 
-    party_size INTEGER NOT NULL CHECK (party_size > 0),
-    party_adults INTEGER NOT NULL CHECK (party_adults > 0),
-    party_children INTEGER NOT NULL DEFAULT 0 CHECK (party_children >= 0),
+    party_size INTEGER NOT NULL CHECK (party_size >= 1),
+    adult_count INTEGER NOT NULL DEFAULT 1 CHECK (adult_count >= 0),
+    child_count INTEGER NOT NULL DEFAULT 0 CHECK (child_count >= 0),
 
     total_price BIGINT NOT NULL CHECK (total_price >= 0), -- Minor units (paise/cents)
     currency VARCHAR(3) NOT NULL DEFAULT 'INR',
@@ -65,7 +65,12 @@ CREATE TABLE bookings (
     -- Immutable historical snapshots
     price_breakdown JSONB NOT NULL,
     package_snapshot JSONB NOT NULL,
+    departure_snapshot JSONB NOT NULL,
     itinerary_snapshot JSONB NOT NULL,
+
+    primary_contact_name VARCHAR(120) NOT NULL,
+    primary_contact_email VARCHAR(255) NOT NULL,
+    primary_contact_phone VARCHAR(30) NOT NULL,
 
     cancellation_reason TEXT,
     cancelled_at TIMESTAMPTZ,
@@ -74,7 +79,7 @@ CREATE TABLE bookings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT chk_party_size_sum CHECK (party_size = party_adults + party_children)
+    CONSTRAINT chk_party_size_sum CHECK (party_size = adult_count + child_count)
 );
 
 CREATE INDEX idx_bookings_customer_created ON bookings (customer_id, created_at DESC);
@@ -96,12 +101,12 @@ CREATE TABLE booking_passengers (
 
     passenger_type passenger_type NOT NULL,
     full_name VARCHAR(120) NOT NULL,
-    age INTEGER NOT NULL CHECK (age >= 0 AND age <= 120),
+    date_of_birth DATE, -- Optional historical DOB
+    age_at_booking INTEGER NOT NULL CHECK (age_at_booking >= 0 AND age_at_booking <= 120),
     gender passenger_gender NOT NULL,
 
     is_primary_contact BOOLEAN NOT NULL DEFAULT FALSE,
-    contact_email VARCHAR(255),
-    contact_phone VARCHAR(30),
+    special_requests TEXT, -- General non-sensitive travel preferences
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -111,22 +116,23 @@ CREATE INDEX idx_passengers_booking ON booking_passengers (booking_id);
 
 ---
 
-### 2.3 `idempotency_keys` Table (Checkout Safety)
+### 2.3 `idempotency_keys` Table (Checkout & Mutation Safety)
 
 ```sql
 CREATE TABLE idempotency_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    key VARCHAR(255) UNIQUE NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    endpoint VARCHAR(100) NOT NULL,
-    request_hash VARCHAR(64) NOT NULL,
+    endpoint_scope VARCHAR(100) NOT NULL, -- e.g. 'POST /api/v1/bookings', 'POST /api/v1/bookings/:ref/cancel'
+    idempotency_key VARCHAR(128) NOT NULL,
+    request_hash VARCHAR(64) NOT NULL, -- SHA-256 of canonical request payload
     response_code INTEGER,
     response_body JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours')
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours'),
+
+    CONSTRAINT uq_idempotency_user_endpoint_key UNIQUE (user_id, endpoint_scope, idempotency_key)
 );
 
-CREATE INDEX idx_idempotency_lookup ON idempotency_keys (key, user_id);
 CREATE INDEX idx_idempotency_expires ON idempotency_keys (expires_at);
 ```
 
@@ -173,7 +179,24 @@ CREATE INDEX idx_idempotency_expires ON idempotency_keys (expires_at);
 }
 ```
 
-### 3.3 `itinerary_snapshot` (JSONB)
+### 3.3 `departure_snapshot` (JSONB)
+
+```json
+{
+  "departureId": "22222222-2222-2222-2222-222222222222",
+  "departureDate": "2026-11-15",
+  "returnDate": "2026-11-20",
+  "pricingApplied": {
+    "basePriceAdult": 4500000,
+    "basePriceChild": 2250000,
+    "singleSupplementPrice": 0,
+    "currency": "INR"
+  },
+  "statusAtBooking": "OPEN"
+}
+```
+
+### 3.4 `itinerary_snapshot` (JSONB)
 
 ```json
 [
@@ -193,3 +216,17 @@ CREATE INDEX idx_idempotency_expires ON idempotency_keys (expires_at);
   }
 ]
 ```
+
+---
+
+## 4. Architectural Decisions
+
+### 4.1 Evaluation of `booking_items`
+
+- **Decision:** A dedicated `booking_items` table is **NOT required for MVP**. [DECISION]
+- **Rationale:** In Young Tours & Travels, each booking represents a direct purchase of a single tour package departure for a specific passenger roster (`1:1` relationship between booking and departure). Introducing an intermediate line-item table at this stage creates premature abstraction and unnecessary database joins without adding business value. If multi-item shopping carts, flight add-ons, or custom merchandise are introduced in future phases, a line-item schema migration can be evaluated then.
+
+### 4.2 Passenger Age Stability vs. Historical Integrity
+
+- **Decision:** The passenger model records `age_at_booking INTEGER` and optional `date_of_birth DATE`. [DECISION]
+- **Rationale:** Storing `age_at_booking` ensures that adult/child ticket pricing and passenger classifications remain historically immutable and reproducible forever, even if passenger rosters are inspected years after the tour.

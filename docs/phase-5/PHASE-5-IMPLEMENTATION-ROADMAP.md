@@ -65,8 +65,8 @@ Step 0: Requirements, Architecture & Engineering Plan (Current)
 - **Scope:**
   - Migration `008_create_bookings_and_passengers.sql`.
   - Tables: `bookings`, `booking_passengers`, `idempotency_keys`.
-  - Check constraints: `chk_booking_total_amount_positive`, `chk_booking_party_size_positive`, `chk_passenger_age_range`, `chk_passenger_type`.
-  - Unique indexes: `uq_bookings_reference`, `uq_bookings_hold_id`, `uq_idempotency_user_key`.
+  - Check constraints: `chk_booking_total_price_positive`, `chk_party_size_positive` (`party_size >= 1`), `chk_adult_count_positive` (`adult_count >= 0`), `chk_child_count_positive` (`child_count >= 0`), `chk_party_size_sum`, `chk_passenger_age_range` (`age_at_booking BETWEEN 0 AND 120`), `chk_passenger_type`.
+  - Unique indexes: `uq_bookings_reference`, `uq_bookings_hold_id`, `uq_idempotency_user_endpoint_key` `(user_id, endpoint_scope, idempotency_key)`.
 - **Expected Files:**
   - `backend/src/db/migrations/008_create_bookings_and_passengers.sql`
 - **Dependencies:** Step 0 approved; existing migrations 001–007.
@@ -78,10 +78,10 @@ Step 0: Requirements, Architecture & Engineering Plan (Current)
 
 ### Step 2: Shared Zod Schemas & TypeScript Contracts
 
-- **Objective:** Define end-to-end type-safe Zod validation schemas and TypeScript types in `@travel-web/shared` for all booking request/response payloads, snapshots, passenger rosters, and error envelopes.
+- **Objective:** Define end-to-end type-safe Zod validation schemas and TypeScript types in `@travel-web/shared` for all booking request/response payloads, snapshots (package, departure, itinerary, price breakdown), passenger rosters, and error envelopes.
 - **Scope:**
-  - Schemas: `CreateBookingRequestSchema`, `BookingResponseSchema`, `BookingListResponseSchema`, `PassengerSchema`, `PriceBreakdownSchema`, `PackageSnapshotSchema`, `DepartureManifestResponseSchema`.
-  - Enums: `BookingStatusEnum`, `PassengerTypeEnum`, `PassengerGenderEnum`.
+  - Schemas: `CreateBookingRequestSchema`, `BookingResponseSchema`, `BookingListResponseSchema`, `PassengerSchema`, `PriceBreakdownSchema`, `PackageSnapshotSchema`, `DepartureSnapshotSchema`, `ItinerarySnapshotSchema`, `DepartureManifestResponseSchema`.
+  - Enums: `BookingStatusEnum` (`AWAITING_PAYMENT`, `CONFIRMED`, `CANCELLED`, `EXPIRED`), `PassengerTypeEnum` (`ADULT`, `CHILD`), `PassengerGenderEnum`.
 - **Expected Files:**
   - `shared/src/schemas/booking.schema.ts`
   - `shared/src/types/booking.types.ts`
@@ -116,8 +116,8 @@ Step 0: Requirements, Architecture & Engineering Plan (Current)
 
 - **Objective:** Implement core domain business services managing the booking lifecycle, state machine transitions, immutable snapshot generation, and price calculation.
 - **Scope:**
-  - `BookingService`: Reference generation (`BK-YYYYMMDD-XXXX`), immutable snapshotting of packages and itineraries, pricing calculation and breakdown generation, state transitions.
-  - `CancellationService`: Cancellation eligibility checks, refund estimation notes, state mutation.
+  - `BookingService`: Reference generation (`BK-YYYYMMDD-XXXX`), immutable snapshotting of packages, departures, and itineraries, pricing calculation and breakdown generation, state transitions.
+  - `CancellationService`: Cancellation eligibility checks, refund estimation notes, state mutation with single-decrement atomic guards.
 - **Expected Files:**
   - `backend/src/modules/booking/services/booking.service.ts`
   - `backend/src/modules/booking/services/cancellation.service.ts`
@@ -170,7 +170,7 @@ Step 0: Requirements, Architecture & Engineering Plan (Current)
 - **Scope:**
   - `GET /api/v1/admin/bookings` (Admin search/filter bookings)
   - `GET /api/v1/admin/bookings/:reference` (Admin booking inspection)
-  - `GET /api/v1/admin/departures/:id/manifest` (Admin passenger manifest with totals and dietary/medical notes)
+  - `GET /api/v1/admin/departures/:id/manifest` (Admin passenger manifest with total confirmed passengers and special requests)
 - **Expected Files:**
   - `backend/src/modules/booking/routes/admin-booking.routes.ts`
   - `backend/src/modules/booking/controllers/admin-booking.controller.ts`
