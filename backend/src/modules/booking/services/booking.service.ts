@@ -421,8 +421,17 @@ export class BookingService {
         throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
       }
 
+      // Re-read booking state under departure lock in case concurrent transaction already confirmed it
+      const currentBooking = await this.bookingRepo.findById(command.bookingId, client);
+      if (!currentBooking) {
+        throw AppError.notFound('Booking not found', ErrorCodes.BOOKING_NOT_FOUND);
+      }
+      if (currentBooking.status === 'CONFIRMED') {
+        return currentBooking;
+      }
+
       // Verify inventory hold validity
-      if (!booking.holdId) {
+      if (!currentBooking.holdId) {
         throw AppError.badRequest(
           'Booking has no associated inventory hold',
           [],
@@ -430,7 +439,7 @@ export class BookingService {
         );
       }
 
-      const hold = await this.inventoryHoldRepo.findById(booking.holdId, client);
+      const hold = await this.inventoryHoldRepo.findById(currentBooking.holdId, client);
       if (!hold || hold.status !== 'ACTIVE' || hold.expiresAt.getTime() <= Date.now()) {
         throw AppError.badRequest(
           'Inventory hold has expired or is invalid. Late payment cannot automatically confirm booking.',
