@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
+import {
+  DatabaseService,
+  runMigrations,
+  seedAll,
+} from '../../backend/src/infrastructure/database/index.js';
 import { loadEnv } from '../../backend/src/config/env.js';
 import {
   BookingRepository,
@@ -26,6 +30,9 @@ describe('Phase 5 Step 3 — PostgreSQL Booking Data Access Repositories (Unit &
       const health = await db.checkHealth();
       if (health.status === 'healthy') {
         isDbAvailable = true;
+        await runMigrations(db);
+        await seedAll();
+
         bookingRepo = new BookingRepository(db);
         passengerRepo = new PassengerRepository(db);
         idempotencyRepo = new IdempotencyRepository(db);

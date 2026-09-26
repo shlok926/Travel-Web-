@@ -339,9 +339,12 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
     mockInventoryHoldRepo = {
       create: vi.fn().mockResolvedValue(mockHold),
       findById: vi.fn().mockResolvedValue(mockHold),
+      findByIdForUpdate: vi.fn().mockResolvedValue(mockHold),
       getActiveHoldCountForDeparture: vi.fn().mockResolvedValue(0),
       updateStatus: vi.fn().mockResolvedValue(mockHold),
+      updateStatusGuarded: vi.fn().mockResolvedValue(mockHold),
       releaseHold: vi.fn().mockResolvedValue(true),
+      findExpiredActiveHolds: vi.fn().mockResolvedValue([]),
     } as unknown as InventoryHoldRepository;
 
     mockPackageRepo = {
@@ -618,8 +621,9 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
         expect.objectContaining({ confirmedAt: expect.any(Date) }),
         expect.anything(),
       );
-      expect(mockInventoryHoldRepo.updateStatus).toHaveBeenCalledWith(
+      expect(mockInventoryHoldRepo.updateStatusGuarded).toHaveBeenCalledWith(
         sampleHoldId,
+        'ACTIVE',
         'COMMITTED',
         expect.anything(),
       );
@@ -880,8 +884,9 @@ describe('Phase 5 Step 4 — Booking Domain & Business Rule Services', () => {
         {},
         expect.anything(),
       );
-      expect(mockInventoryHoldRepo.updateStatus).toHaveBeenCalledWith(
+      expect(mockInventoryHoldRepo.updateStatusGuarded).toHaveBeenCalledWith(
         sampleHoldId,
+        'ACTIVE',
         'EXPIRED',
         expect.anything(),
       );

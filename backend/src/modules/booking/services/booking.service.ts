@@ -383,11 +383,12 @@ export class BookingService {
   /**
    * Domain primitive to confirm a booking upon verified payment capture (Phase 6 hook).
    *
-   * Invariants:
+   * Invariants & Pessimistic Concurrency:
+   * - Acquires departure row lock (`SELECT ... FOR UPDATE`) to preserve consistent lock ordering (`departure_schedules -> bookings -> inventory_holds`).
    * - Booking must be in `AWAITING_PAYMENT` state.
    * - Associated inventory hold must be strictly `ACTIVE` and `expiresAt > NOW()`.
-   * - Transitions booking to `CONFIRMED`.
-   * - Transitions hold to `COMMITTED`.
+   * - Atomic guarded update: `bookings` (AWAITING_PAYMENT -> CONFIRMED).
+   * - Atomic guarded update: `inventory_holds` (ACTIVE -> COMMITTED).
    * - Increments `departure_schedules.booked_seats` by `partySize` exactly once.
    */
   async confirmBooking(command: ConfirmBookingCommand): Promise<BookingEntity> {
@@ -412,6 +413,12 @@ export class BookingService {
 
       // Validate lifecycle state transition
       assertBookingTransition(booking.status, 'CONFIRMED');
+
+      // Acquire departure row lock first for consistent lock order: departure_schedules -> bookings -> inventory_holds
+      const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
+      if (!departure) {
+        throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
+      }
 
       // Verify inventory hold validity
       if (!booking.holdId) {
@@ -447,8 +454,20 @@ export class BookingService {
         );
       }
 
-      // Mark inventory hold as COMMITTED
-      await this.inventoryHoldRepo.updateStatus(hold.id, 'COMMITTED', client);
+      // Guarded atomic update on inventory hold: ACTIVE -> COMMITTED
+      const committedHold = await this.inventoryHoldRepo.updateStatusGuarded(
+        hold.id,
+        'ACTIVE',
+        'COMMITTED',
+        client,
+      );
+
+      if (!committedHold) {
+        throw AppError.conflict(
+          'Inventory hold was concurrently modified or expired',
+          ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
+        );
+      }
 
       // Increment booked seats on departure schedule
       await this.departureRepo.incrementBookedSeats(booking.departureId, booking.partySize, client);
@@ -500,6 +519,12 @@ export class BookingService {
       }
 
       assertBookingTransition(booking.status, 'CANCELLED');
+
+      // Acquire departure row lock first for consistent lock order: departure_schedules -> bookings
+      const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
+      if (!departure) {
+        throw AppError.notFound('Departure schedule not found', ErrorCodes.RESOURCE_NOT_FOUND);
+      }
 
       const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
         booking.id,
@@ -576,7 +601,12 @@ export class BookingService {
       }
 
       if (booking.holdId) {
-        await this.inventoryHoldRepo.updateStatus(booking.holdId, 'EXPIRED', client);
+        await this.inventoryHoldRepo.updateStatusGuarded(
+          booking.holdId,
+          'ACTIVE',
+          'EXPIRED',
+          client,
+        );
       }
 
       return expiredBooking;
