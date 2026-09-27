@@ -89,7 +89,7 @@ The requirements for Phase 7 are derived directly from the following project doc
 | **`FR-ADM-008`** | Bookings | Operational booking queue (Search by reference/customer, Filter by status/date, View details & payments). | `PHASE_0_2` §26 | MUST | Admin | Backend: Exist / Frontend: Future | `[DOCUMENTED]` |
 | **`FR-ADM-009`** | Manifest | Passenger roster manifest viewer for ground operations (Traveller names, ages, primary contact, dietary/special requests). | `PHASE_0_2` §27 | MUST | Admin | Backend: Exist / Frontend: Future | `[DOCUMENTED]` |
 | **`FR-ADM-010`** | Cancellations | Review queue for customer cancellation requests; authorize gateway refunds or reject with admin notes. | `PHASE_0_2` §26 | MUST | Admin | Backend: Exist / Frontend: Future | `[DOCUMENTED]` |
-| **`FR-ADM-011`** | CMS Sliders | Manage homepage hero slider banners (Title, Description, Image, Target URL, Sort order, Active state). | `PHASE_0_2` §24, Document §6 | MUST | Admin | Future | `[DOCUMENTED]` |
+| **`FR-ADM-011`** | CMS Sliders | Manage homepage hero slider banners (Documented: Title, Description, Image, Target URL `[DOCUMENTED]`; Proposed: Sort order, Active state `[DECISION]`). | `PHASE_0_2` §24, Document §6 | MUST | Admin | Future | `[DOCUMENTED]` / `[DECISION]` |
 | **`FR-ADM-012`** | CMS Pages | Manage static informational pages ("About Us", "Privacy Policy", "Terms & Conditions", "Contact Details"). | `PHASE_0_2` §24 | MUST | Admin | Future | `[DOCUMENTED]` |
 | **`FR-ADM-013`** | Audit Logging | Traceability and accountability for high-risk administrative operations (Publish, Capacity changes, Cancellations, CMS updates). | `NFR-004` | MUST | Admin / System | Future | `[INFERENCE]` |
 | **`FR-ADM-014`** | Reports | Exportable operational reports (Booking summary, Departure capacity utilization, Revenue reconciliation). | `PHASE_0_2` §29 | SHOULD | Admin | Future | `[DOCUMENTED]` |
@@ -355,21 +355,24 @@ To prevent Stored Cross-Site Scripting (XSS) while allowing rich text formatting
 ### Metric Retrieval Model:
 - **Architecture**: **Request-time SQL Aggregation** via `/api/v1/admin/dashboard/stats` (with optional lightweight in-memory/Redis TTL cache of 60 seconds). No complex streaming infrastructure is introduced. `[DECISION]`
 
-### Precise Financial Semantics:
-To maintain 100% mathematical consistency with Phase 6 financial invariants:
-1. **Total Gross Captured Revenue**:
-   $$\text{Gross Revenue} = \sum \text{amount} \quad \text{from } \mathbf{payment\_transactions} \text{ WHERE } \text{status} = \text{'SUCCESS'}$$
-   Stored and computed strictly in integer minor units (paise / cents). `[DECISION]`
-2. **Total Settled Refunds**:
-   $$\text{Settled Refunds} = \sum \text{refund\_amount} \quad \text{from } \mathbf{refund\_settlements} \text{ WHERE } \text{settlement\_status} = \text{'SETTLED'}$$
-   `[DECISION]`
-3. **Net Revenue**:
-   $$\text{Net Revenue} = \text{Gross Captured Revenue} - \text{Settled Refunds}$$
-   `[DECISION]`
-4. **Confirmed Bookings Value**:
-   $$\text{Confirmed Bookings Value} = \sum \text{total\_amount} \quad \text{from } \mathbf{bookings} \text{ WHERE } \text{status} = \text{'CONFIRMED'}$$
-   `[DECISION]`
-5. **Currency**: All figures are strictly in `INR` minor units (paise). Multi-currency conversion is not applicable for MVP. `[DECISION]`
+### Dashboard Revenue Aggregation Semantics:
+
+> [!IMPORTANT]
+> **Classification: `[UNKNOWN]`**
+> While the underlying Phase 6 financial models and transaction schemas are strictly frozen (authoritative `payment_transactions` with `status = 'SUCCESS'`, `refund_settlements` with `settlement_status = 'SETTLED'`, and integer minor units in INR paise), the **exact administrative aggregation formulas for dashboard reporting** (e.g. Gross Captured Payments vs. Confirmed Booking Values vs. Net Collected Funds after Settled Refunds) are **not yet explicitly defined in Phase 0–6 documentation**.
+>
+> To avoid creating an unverified second financial truth, dashboard revenue semantics remain `[UNKNOWN]` at Step 0 and must be formally established as a documented architectural decision during Step 2 (Shared Contracts) and Step 3 (Services) prior to API implementation.
+
+#### Candidate Revenue Aggregation Metrics (To Be Formally Decided in Step 2/3):
+1. **Candidate Gross Captured Revenue**:
+   $$\sum \text{amount} \quad \text{from } \mathbf{payment\_transactions} \text{ WHERE } \text{status} = \text{'SUCCESS'}$$
+2. **Candidate Settled Refunds**:
+   $$\sum \text{refund\_amount} \quad \text{from } \mathbf{refund\_settlements} \text{ WHERE } \text{settlement\_status} = \text{'SETTLED'}$$
+3. **Candidate Net Collected Revenue**:
+   $$\text{Gross Captured Revenue} - \text{Settled Refunds}$$
+4. **Candidate Confirmed Booking Value**:
+   $$\sum \text{total\_amount} \quad \text{from } \mathbf{bookings} \text{ WHERE } \text{status} = \text{'CONFIRMED'}$$
+5. **Currency Consistency**: All values will be stored and calculated strictly as integer minor units (`BIGINT` INR paise). Floating-point conversions are prohibited. `[DOCUMENTED]`
 
 ### Operational Dashboard Cards:
 - **Bookings Volume**: Total confirmed bookings (All-time and current calendar month).
@@ -722,20 +725,22 @@ The following features remain strictly **DEFERRED** and will not be implemented 
 
 ---
 
-## 29. Open Questions / UNKNOWN Items
+## 29. Resolved Architectural Decisions & Remaining UNKNOWN Items
 
-1. **Static Media Uploads for Hero Sliders**: Should hero slider images use the existing S3/local storage upload abstraction or allow external image URL links?
-   - *Resolution*: Support both standard image URLs and direct S3 uploads via storage service. `[DECISION]`
-2. **Audit Log Retention Period**: How long should administrative audit logs be retained?
-   - *Resolution*: Seven-year retention is a project architectural decision chosen for consistency with the existing financial-document retention policy. `[DECISION]`
-3. **Automated Notification Dispatch on Admin Actions**: Should admin actions trigger real-time Email/SMS notifications to customers?
-   - *Resolution*: Real-time transactional notification infrastructure belongs to Phase 8 Notifications. Admin operations will record status in PostgreSQL for customer dashboard visibility. `[DECISION]`
+### A. Resolved Architectural Decisions (`[DECISION]`):
+1. **Static Media Upload Strategy (`[DECISION]`)**: Storage service will support both direct S3 uploads via `StorageService` and validated external image URLs for hero banners.
+2. **Audit Log Retention Period (`[DECISION]`)**: Seven-year retention is a project architectural decision chosen for consistency with the existing financial-document retention policy.
+3. **Transactional Notification Dispatch Timing (`[DECISION]`)**: Real-time customer Email/SMS notification dispatch remains deferred to Phase 8 (Transactional Notifications); Phase 7 focuses strictly on database status recording and Admin UI operational views.
+4. **CMS Content Format & Sanitization Boundary (`[DECISION]`)**: CMS pages use restricted/sanitized HTML with a strict server-side element allowlist enforced on ingest, storing only clean HTML.
+
+### B. Remaining UNKNOWN Items (`[UNKNOWN]`):
+1. **Dashboard Revenue Aggregation Semantics (`[UNKNOWN]`)**: The exact financial aggregation formulas for Admin Dashboard metrics (Gross Captured Revenue vs. Net Revenue vs. Booking Totals) are not explicitly specified in Phase 0–6 documentation and will be formally resolved in Step 2/3 contracts prior to endpoint implementation.
 
 ---
 
 ## 30. Acceptance Criteria for Step 0
 
-- [x] All authoritative Phase 7 requirements discovered, verified, and classified.
+- [x] All identified Phase 7 requirements were reviewed and classified according to available project documentation and repository evidence; unresolved areas are explicitly marked [DECISION] or [UNKNOWN].
 - [x] Existing Admin capabilities and backend routes thoroughly audited.
 - [x] Existing RBAC and authorization guards analyzed with repository evidence.
 - [x] Phase 7 domain boundaries established.
