@@ -64,7 +64,10 @@ const PASSENGER_PROJECTION = `
 function formatDateOnly(d: string | Date | null | undefined): string | null {
   if (!d) return null;
   if (d instanceof Date) {
-    return d.toISOString().split('T')[0] ?? null;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   return String(d).split('T')[0] ?? null;
 }

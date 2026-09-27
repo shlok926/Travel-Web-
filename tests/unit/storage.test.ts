@@ -78,4 +78,45 @@ describe('Object Storage Abstraction — LocalStorageService', () => {
       }),
     ).rejects.toThrow(/exceeds maximum allowed limit/);
   });
+
+  it('5. should generate cryptographically verifiable HMAC signed URLs and enforce expiration', async () => {
+    const bucket = 'documents';
+    const key = 'test-doc.pdf';
+    const ttlSeconds = 60;
+
+    const downloadUrl = await storage.getDownloadUrl(bucket, key, ttlSeconds);
+    expect(downloadUrl).toContain('expires=');
+    expect(downloadUrl).toContain('signature=');
+
+    const urlObj = new URL(downloadUrl);
+    const expiresTimestamp = Number(urlObj.searchParams.get('expires'));
+    const signature = urlObj.searchParams.get('signature')!;
+
+    // A. Valid signature & active timestamp
+    const isValid = storage.verifyDownloadSignature(bucket, key, expiresTimestamp, signature);
+    expect(isValid).toBe(true);
+
+    // B. Expired timestamp rejected
+    const pastTimestamp = Math.floor(Date.now() / 1000) - 10;
+    const isExpiredValid = storage.verifyDownloadSignature(bucket, key, pastTimestamp, signature);
+    expect(isExpiredValid).toBe(false);
+
+    // C. Tampered signature rejected
+    const isTamperedSignatureValid = storage.verifyDownloadSignature(
+      bucket,
+      key,
+      expiresTimestamp,
+      'deadbeefbadsignature',
+    );
+    expect(isTamperedSignatureValid).toBe(false);
+
+    // D. Tampered bucket/key rejected
+    const isTamperedKeyValid = storage.verifyDownloadSignature(
+      'evil-bucket',
+      key,
+      expiresTimestamp,
+      signature,
+    );
+    expect(isTamperedKeyValid).toBe(false);
+  });
 });

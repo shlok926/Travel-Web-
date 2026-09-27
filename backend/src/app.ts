@@ -30,6 +30,22 @@ import {
   IdempotencyRepository,
   BookingService,
 } from './modules/booking/index.js';
+import {
+  PaymentTransactionRepository,
+  PaymentEventRepository,
+  CancellationRequestRepository,
+  RefundSettlementRepository,
+  PaymentGatewayFactory,
+  PaymentService,
+  PaymentWebhookService,
+  CancellationService,
+} from './modules/payment/index.js';
+import {
+  TaxInvoiceRepository,
+  TicketVoucherRepository,
+  PdfGeneratorService,
+  DocumentService,
+} from './modules/document/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -62,6 +78,18 @@ export interface AppDependencies {
   passengerRepo?: PassengerRepository;
   idempotencyRepo?: IdempotencyRepository;
   bookingService?: BookingService;
+  paymentTxRepo?: PaymentTransactionRepository;
+  paymentEventRepo?: PaymentEventRepository;
+  cancellationRequestRepo?: CancellationRequestRepository;
+  refundSettlementRepo?: RefundSettlementRepository;
+  gatewayFactory?: PaymentGatewayFactory;
+  paymentService?: PaymentService;
+  paymentWebhookService?: PaymentWebhookService;
+  cancellationService?: CancellationService;
+  taxInvoiceRepo?: TaxInvoiceRepository;
+  ticketVoucherRepo?: TicketVoucherRepository;
+  pdfGenerator?: PdfGeneratorService;
+  documentService?: DocumentService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -77,6 +105,14 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   departureService: DepartureService;
   availabilityService: AvailabilityService;
   bookingService: BookingService;
+  paymentService: PaymentService;
+  paymentWebhookService: PaymentWebhookService;
+  cancellationRequestRepo: CancellationRequestRepository;
+  refundSettlementRepo: RefundSettlementRepository;
+  cancellationService: CancellationService;
+  taxInvoiceRepo: TaxInvoiceRepository;
+  ticketVoucherRepo: TicketVoucherRepository;
+  documentService: DocumentService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -100,6 +136,20 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
             },
           },
     requestTimeout: 15000,
+  });
+
+  // Preserve raw request body on (req as any).rawBody for cryptographic HMAC webhook verification
+  app.addContentTypeParser(/^application\/json/, { parseAs: 'buffer' }, (req, body, done) => {
+    try {
+      const rawString = body.toString('utf-8');
+      (req as any).rawBody = rawString;
+      const json = rawString.trim().length > 0 ? JSON.parse(rawString) : {};
+      done(null, json);
+    } catch (err: unknown) {
+      const syntaxError = err as Error & { statusCode?: number };
+      syntaxError.statusCode = 400;
+      done(syntaxError, undefined);
+    }
   });
 
   // Instantiate Infrastructure Services
@@ -136,11 +186,19 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const availabilityService =
     dependencies.availabilityService ?? new AvailabilityService(departureRepo);
 
-  // Instantiate Booking Layer (Phase 5)
+  // Instantiate Booking & Payment Repositories
   const bookingRepo = dependencies.bookingRepo ?? new BookingRepository(db);
   const passengerRepo = dependencies.passengerRepo ?? new PassengerRepository(db);
   const idempotencyRepo = dependencies.idempotencyRepo ?? new IdempotencyRepository(db);
+  const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
+  const paymentEventRepo = dependencies.paymentEventRepo ?? new PaymentEventRepository(db);
+  const cancellationRequestRepo =
+    dependencies.cancellationRequestRepo ?? new CancellationRequestRepository(db);
+  const refundSettlementRepo =
+    dependencies.refundSettlementRepo ?? new RefundSettlementRepository(db);
+  const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
 
+  // Instantiate Booking Layer (Phase 5 & 6)
   const bookingService =
     dependencies.bookingService ??
     new BookingService(
@@ -153,6 +211,43 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       tourPackageRepo,
       itineraryRepo,
       destinationRepo,
+      paymentTxRepo,
+    );
+
+  // Instantiate Payment Services (Phase 6)
+  const paymentService =
+    dependencies.paymentService ??
+    new PaymentService(paymentTxRepo, gatewayFactory, bookingService);
+  const paymentWebhookService =
+    dependencies.paymentWebhookService ??
+    new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config, bookingService);
+  const cancellationService =
+    dependencies.cancellationService ??
+    new CancellationService(
+      db,
+      bookingRepo,
+      departureRepo,
+      cancellationRequestRepo,
+      refundSettlementRepo,
+      paymentTxRepo,
+      gatewayFactory,
+    );
+
+  // Instantiate Document Services (Phase 6 Step 8)
+  const taxInvoiceRepo = dependencies.taxInvoiceRepo ?? new TaxInvoiceRepository(db);
+  const ticketVoucherRepo = dependencies.ticketVoucherRepo ?? new TicketVoucherRepository(db);
+  const pdfGenerator = dependencies.pdfGenerator ?? new PdfGeneratorService();
+  const documentService =
+    dependencies.documentService ??
+    new DocumentService(
+      bookingRepo,
+      passengerRepo,
+      paymentTxRepo,
+      taxInvoiceRepo,
+      ticketVoucherRepo,
+      storage,
+      pdfGenerator,
+      config.S3_BUCKET_PRIVATE,
     );
 
   // Register Core Middleware Plugins
@@ -183,6 +278,10 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     departureService,
     availabilityService,
     bookingService,
+    paymentService,
+    paymentWebhookService,
+    cancellationService,
+    documentService,
     config,
   });
 
@@ -199,6 +298,14 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     departureService,
     availabilityService,
     bookingService,
+    paymentService,
+    paymentWebhookService,
+    cancellationRequestRepo,
+    refundSettlementRepo,
+    cancellationService,
+    taxInvoiceRepo,
+    ticketVoucherRepo,
+    documentService,
     config,
   };
 }

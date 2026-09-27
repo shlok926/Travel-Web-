@@ -9,8 +9,46 @@ export class LocalStorageService implements IStorageService {
   private readonly absoluteBasePath: string;
   private readonly MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
 
-  constructor(private readonly basePath: string = './uploads') {
+  constructor(
+    private readonly basePath: string = './uploads',
+    private readonly baseUrl: string = 'http://localhost:3000',
+    private readonly signingSecret: string = 'dev_storage_signing_secret_key_12345',
+  ) {
     this.absoluteBasePath = path.resolve(process.cwd(), this.basePath);
+  }
+
+  /**
+   * Generates HMAC-SHA256 cryptographic signature for presigned URL verification.
+   */
+  generateSignature(bucket: string, key: string, expiresTimestamp: number): string {
+    const payload = `${bucket}:${key}:${expiresTimestamp}`;
+    return crypto.createHmac('sha256', this.signingSecret).update(payload).digest('hex');
+  }
+
+  /**
+   * Verifies signature and expiration timestamp for a local storage download request.
+   */
+  verifyDownloadSignature(
+    bucket: string,
+    key: string,
+    expiresTimestamp: number,
+    signature: string,
+  ): boolean {
+    if (!expiresTimestamp || !signature) {
+      return false;
+    }
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    if (currentTimestamp > expiresTimestamp) {
+      return false; // Expired
+    }
+    const expectedSignature = this.generateSignature(bucket, key, expiresTimestamp);
+    if (expectedSignature.length !== signature.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, 'utf-8'),
+      Buffer.from(signature, 'utf-8'),
+    );
   }
 
   /**
@@ -89,12 +127,13 @@ export class LocalStorageService implements IStorageService {
   async getDownloadUrl(
     bucket: string,
     key: string,
-    _expiresInSeconds: number = 900,
+    expiresInSeconds: number = 900,
   ): Promise<string> {
-    // Return relative API route for local development (enforcing path security)
     const sanitizedBucket = encodeURIComponent(bucket);
     const sanitizedKey = encodeURIComponent(key);
-    return `/api/v1/storage/${sanitizedBucket}/${sanitizedKey}`;
+    const expiresTimestamp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+    const signature = this.generateSignature(bucket, key, expiresTimestamp);
+    return `${this.baseUrl}/api/v1/storage/${sanitizedBucket}/${sanitizedKey}?expires=${expiresTimestamp}&signature=${signature}`;
   }
 
   async delete(bucket: string, key: string): Promise<void> {

@@ -96,6 +96,14 @@ const envSchema = z
     // Operational Defaults
     DEFAULT_CURRENCY: z.enum(['INR', 'USD']).default('INR'),
     HOLD_DURATION_MINUTES: z.coerce.number().default(15),
+
+    // Payment Provider Configuration (Phase 6)
+    DEFAULT_PAYMENT_PROVIDER: z.enum(['RAZORPAY', 'STRIPE', 'MOCK']).default('MOCK'),
+    RAZORPAY_KEY_ID: z.string().optional(),
+    RAZORPAY_KEY_SECRET: z.string().optional(),
+    STRIPE_SECRET_KEY: z.string().optional(),
+    STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+    PAYMENT_WEBHOOK_SECRET: z.string().optional(),
   })
   .refine(
     (data) => {

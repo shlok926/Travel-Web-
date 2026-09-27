@@ -12,6 +12,10 @@ export class StorageFactory {
     if (config.STORAGE_DRIVER === 's3') {
       return new S3StorageService(config);
     }
-    return new LocalStorageService(config.STORAGE_LOCAL_PATH);
+    return new LocalStorageService(
+      config.STORAGE_LOCAL_PATH,
+      config.CORS_ORIGIN || 'http://localhost:3000',
+      config.COOKIE_SECRET,
+    );
   }
 }

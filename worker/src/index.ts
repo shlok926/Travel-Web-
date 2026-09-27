@@ -2,7 +2,9 @@ import pino from 'pino';
 import { loadWorkerEnv } from './config/workerEnv.js';
 import { createSmokeWorker } from './queues/smokeQueue.js';
 import { createHoldExpiryWorker } from './queues/holdExpiryQueue.js';
+import { createDocumentWorker } from './queues/documentQueue.js';
 import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
+import { StorageFactory } from '../../backend/src/infrastructure/storage/index.js';
 import { BookingRepository } from '../../backend/src/modules/booking/repositories/booking.repository.js';
 import { PassengerRepository } from '../../backend/src/modules/booking/repositories/passenger.repository.js';
 import { IdempotencyRepository } from '../../backend/src/modules/booking/repositories/idempotency.repository.js';
@@ -10,10 +12,14 @@ import { DepartureRepository } from '../../backend/src/modules/inventory/reposit
 import { InventoryHoldRepository } from '../../backend/src/modules/inventory/repositories/inventoryHold.repository.js';
 import { TourPackageRepository } from '../../backend/src/modules/catalogue/repositories/tourPackage.repository.js';
 import { BookingService } from '../../backend/src/modules/booking/services/booking.service.js';
-
-import { loadEnv } from '../../backend/src/config/env.js';
 import { DestinationRepository } from '../../backend/src/modules/catalogue/repositories/destination.repository.js';
 import { ItineraryRepository } from '../../backend/src/modules/catalogue/repositories/itinerary.repository.js';
+import { PaymentTransactionRepository } from '../../backend/src/modules/payment/repositories/paymentTransaction.repository.js';
+import { TaxInvoiceRepository } from '../../backend/src/modules/document/repositories/taxInvoice.repository.js';
+import { TicketVoucherRepository } from '../../backend/src/modules/document/repositories/ticketVoucher.repository.js';
+import { PdfGeneratorService } from '../../backend/src/modules/document/services/pdfGenerator.service.js';
+import { DocumentService } from '../../backend/src/modules/document/services/document.service.js';
+import { loadEnv } from '../../backend/src/config/env.js';
 
 async function startWorker(): Promise<void> {
   const config = loadWorkerEnv();
@@ -32,7 +38,10 @@ async function startWorker(): Promise<void> {
     logger.info('✅ Database connected successfully for worker.');
   }
 
-  // Initialize Domain Repositories & Services
+  // Initialize Storage Service
+  const storageService = StorageFactory.create(envConfig);
+
+  // Initialize Domain Repositories
   const bookingRepo = new BookingRepository(db);
   const passengerRepo = new PassengerRepository(db);
   const idempotencyRepo = new IdempotencyRepository(db);
@@ -41,7 +50,11 @@ async function startWorker(): Promise<void> {
   const tourPackageRepo = new TourPackageRepository(db);
   const itineraryRepo = new ItineraryRepository(db);
   const destinationRepo = new DestinationRepository(db);
+  const paymentRepo = new PaymentTransactionRepository(db);
+  const taxInvoiceRepo = new TaxInvoiceRepository(db);
+  const ticketVoucherRepo = new TicketVoucherRepository(db);
 
+  // Initialize Services
   const bookingService = new BookingService(
     db,
     bookingRepo,
@@ -52,6 +65,18 @@ async function startWorker(): Promise<void> {
     tourPackageRepo,
     itineraryRepo,
     destinationRepo,
+  );
+
+  const pdfGenerator = new PdfGeneratorService();
+  const documentService = new DocumentService(
+    bookingRepo,
+    passengerRepo,
+    paymentRepo,
+    taxInvoiceRepo,
+    ticketVoucherRepo,
+    storageService,
+    pdfGenerator,
+    envConfig.S3_BUCKET_PRIVATE,
   );
 
   // 1. Smoke Worker
@@ -74,6 +99,21 @@ async function startWorker(): Promise<void> {
     },
   });
 
+  // 3. Document Generation Worker
+  const documentWorker = createDocumentWorker(config, documentService, {
+    onProcessed: (job, result) => {
+      logger.info(
+        {
+          jobId: job.id,
+          bookingId: result.bookingId,
+          invoiceNumber: result.invoiceNumber,
+          voucherCode: result.voucherCode,
+        },
+        'Processed document generation job',
+      );
+    },
+  });
+
   // Lifecycle Event Listeners
   holdExpiryWorker.on('completed', (job) => {
     logger.debug({ jobId: job?.id }, 'Hold expiry job completed');
@@ -87,13 +127,30 @@ async function startWorker(): Promise<void> {
     logger.error({ err }, 'Hold expiry worker internal error');
   });
 
+  documentWorker.on('completed', (job) => {
+    logger.debug({ jobId: job?.id }, 'Document generation job completed');
+  });
+
+  documentWorker.on('failed', (job, err) => {
+    logger.error({ jobId: job?.id, err }, 'Document generation job failed');
+  });
+
+  documentWorker.on('error', (err) => {
+    logger.error({ err }, 'Document generation worker internal error');
+  });
+
   logger.info('🚀 Worker process initialized and listening for jobs.');
 
   // Graceful Shutdown
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}. Gracefully stopping workers...`);
     try {
-      await Promise.allSettled([smokeWorker.close(), holdExpiryWorker.close()]);
+      await Promise.allSettled([
+        smokeWorker.close(),
+        holdExpiryWorker.close(),
+        documentWorker.close(),
+        pdfGenerator.close(),
+      ]);
       await db.close();
       logger.info('Worker closed gracefully.');
       process.exit(0);

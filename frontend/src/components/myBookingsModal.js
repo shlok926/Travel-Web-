@@ -160,8 +160,17 @@ export class MyBookingsModal {
                           View Details &rarr;
                         </button>
                         ${
+                          status === 'AWAITING_PAYMENT'
+                            ? `<button type="button" class="btn-primary btn-sm btn-pay-booking-row" data-ref="${ref}">💳 Pay Now</button>`
+                            : ''
+                        }
+                        ${
                           status === 'CONFIRMED'
-                            ? `<button type="button" class="btn-danger btn-sm btn-cancel-booking-row" data-ref="${ref}">Cancel</button>`
+                            ? `
+                            <button type="button" class="btn-doc-download btn-sm btn-row-invoice" data-ref="${ref}">📄 Invoice</button>
+                            <button type="button" class="btn-doc-download btn-sm btn-row-voucher" data-ref="${ref}">🎫 Voucher</button>
+                            <button type="button" class="btn-danger btn-sm btn-cancel-booking-row" data-ref="${ref}">Cancel</button>
+                          `
                             : ''
                         }
                       </div>
@@ -223,24 +232,60 @@ export class MyBookingsModal {
       });
     });
 
-    // Cancel buttons
-    container.querySelectorAll('.btn-cancel-booking-row').forEach((btn) => {
+    // Pay Now buttons
+    container.querySelectorAll('.btn-pay-booking-row').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ref = btn.getAttribute('data-ref');
+        if (ref) {
+          BookingDetailModal.open(ref);
+        }
+      });
+    });
+
+    // Direct invoice download
+    container.querySelectorAll('.btn-row-invoice').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const ref = btn.getAttribute('data-ref');
         if (ref) {
-          const reason = window.prompt('Please provide a cancellation reason:', 'Schedule change');
-          if (reason) {
-            try {
-              btn.disabled = true;
-              btn.textContent = 'Cancelling...';
-              await api.cancelBooking(ref, reason.trim());
-              await this.loadBookings(this.pagination.page);
-            } catch (err) {
-              btn.disabled = false;
-              btn.textContent = 'Cancel';
-              alert(`Cancellation failed: ${err.message || 'Error'}`);
-            }
+          btn.disabled = true;
+          try {
+            const res = await api.downloadInvoice(ref);
+            const url = res?.downloadUrl || res?.data?.downloadUrl;
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          } catch (err) {
+            alert(`Invoice download failed: ${err.message || 'Error'}`);
+          } finally {
+            btn.disabled = false;
           }
+        }
+      });
+    });
+
+    // Direct voucher download
+    container.querySelectorAll('.btn-row-voucher').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ref = btn.getAttribute('data-ref');
+        if (ref) {
+          btn.disabled = true;
+          try {
+            const res = await api.downloadVoucher(ref);
+            const url = res?.downloadUrl || res?.data?.downloadUrl;
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          } catch (err) {
+            alert(`Voucher download failed: ${err.message || 'Error'}`);
+          } finally {
+            btn.disabled = false;
+          }
+        }
+      });
+    });
+
+    // Cancel buttons
+    container.querySelectorAll('.btn-cancel-booking-row').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ref = btn.getAttribute('data-ref');
+        if (ref) {
+          BookingDetailModal.open(ref);
         }
       });
     });

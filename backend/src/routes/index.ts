@@ -25,6 +25,17 @@ import {
   customerBookingRoutes,
   adminBookingRoutes,
 } from '../modules/booking/index.js';
+import {
+  PaymentService,
+  PaymentWebhookService,
+  CancellationService,
+  paymentRoutes,
+  webhookRoutes,
+  customerCancellationRoutes,
+  adminCancellationRoutes,
+} from '../modules/payment/index.js';
+import { DocumentService, documentRoutes } from '../modules/document/index.js';
+import { localStorageRoutes } from './localStorage.routes.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -38,6 +49,10 @@ export interface ApiRoutesOptions {
   departureService?: DepartureService;
   availabilityService?: AvailabilityService;
   bookingService?: BookingService;
+  paymentService?: PaymentService;
+  paymentWebhookService?: PaymentWebhookService;
+  cancellationService?: CancellationService;
+  documentService?: DocumentService;
   config?: EnvConfig;
 }
 
@@ -110,6 +125,53 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(adminBookingRoutes, {
       prefix: '/admin',
       bookingService: options.bookingService,
+    });
+  }
+
+  // 10. Register Customer Cancellation Routes under /api/v1/bookings
+  if (options.cancellationService) {
+    await fastify.register(customerCancellationRoutes, {
+      prefix: '/bookings',
+      cancellationService: options.cancellationService,
+    });
+
+    // 11. Register Admin Cancellation Routes under /api/v1/admin/cancellations
+    await fastify.register(adminCancellationRoutes, {
+      prefix: '/admin/cancellations',
+      cancellationService: options.cancellationService,
+    });
+  }
+
+  // 12. Register Payment Routes under /api/v1/payments (Phase 6)
+  if (options.paymentService) {
+    await fastify.register(paymentRoutes, {
+      prefix: '/payments',
+      paymentService: options.paymentService,
+    });
+  }
+
+  // 13. Register Webhook Routes under /api/v1/webhooks (Phase 6 Step 6)
+  if (options.paymentWebhookService) {
+    await fastify.register(webhookRoutes, {
+      prefix: '/webhooks',
+      webhookService: options.paymentWebhookService,
+    });
+  }
+
+  // 14. Register Document Routes under /api/v1/documents (Phase 6 Step 9)
+  if (options.documentService) {
+    await fastify.register(documentRoutes, {
+      prefix: '/documents',
+      documentService: options.documentService,
+    });
+  }
+
+  // 15. Register Development Storage Serving Routes under /api/v1/storage (Phase 6 Step 9)
+  if (options.storage) {
+    await fastify.register(localStorageRoutes, {
+      prefix: '/storage',
+      storage: options.storage,
+      config: options.config,
     });
   }
 };
