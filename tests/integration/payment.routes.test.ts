@@ -184,6 +184,14 @@ describe('Phase 6 Step 5 — Payment Initiation & Payment Status APIs (Integrati
       if (isDbAvailable && customer1Id) {
         try {
           await db.query(
+            `DELETE FROM refund_settlements WHERE payment_transaction_id IN (SELECT id FROM payment_transactions WHERE booking_id IN (SELECT id FROM bookings WHERE customer_id = $1));`,
+            [customer1Id],
+          );
+          await db.query(
+            `DELETE FROM cancellation_requests WHERE booking_id IN (SELECT id FROM bookings WHERE customer_id = $1);`,
+            [customer1Id],
+          );
+          await db.query(
             `DELETE FROM payment_transactions WHERE booking_id IN (SELECT id FROM bookings WHERE customer_id = $1);`,
             [customer1Id],
           );

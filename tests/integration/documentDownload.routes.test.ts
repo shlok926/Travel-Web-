@@ -184,6 +184,13 @@ describe('Phase 6 Step 9 — Document Download Authorization & Presigned URLs (R
     if (isDbAvailable) {
       try {
         if (confirmedBookingId1) {
+          await db.query(
+            `DELETE FROM refund_settlements WHERE cancellation_request_id IN (SELECT id FROM cancellation_requests WHERE booking_id = $1)`,
+            [confirmedBookingId1],
+          );
+          await db.query(`DELETE FROM cancellation_requests WHERE booking_id = $1`, [
+            confirmedBookingId1,
+          ]);
           await db.query(`DELETE FROM tax_invoices WHERE booking_id = $1`, [confirmedBookingId1]);
           await db.query(`DELETE FROM ticket_vouchers WHERE booking_id = $1`, [
             confirmedBookingId1,
@@ -191,6 +198,9 @@ describe('Phase 6 Step 9 — Document Download Authorization & Presigned URLs (R
           await db.query(`DELETE FROM bookings WHERE id = $1`, [confirmedBookingId1]);
         }
         if (pendingBookingId) {
+          await db.query(`DELETE FROM cancellation_requests WHERE booking_id = $1`, [
+            pendingBookingId,
+          ]);
           await db.query(`DELETE FROM bookings WHERE id = $1`, [pendingBookingId]);
         }
         if (customer1Id) {

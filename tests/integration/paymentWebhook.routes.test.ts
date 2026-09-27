@@ -161,6 +161,14 @@ describe('Phase 6 Step 6 — Payment Webhook Processing & HMAC Verification (Int
       if (isDbAvailable && customerId) {
         try {
           await db.query(
+            `DELETE FROM refund_settlements WHERE payment_transaction_id IN (SELECT id FROM payment_transactions WHERE booking_id IN (SELECT id FROM bookings WHERE customer_id = $1));`,
+            [customerId],
+          );
+          await db.query(
+            `DELETE FROM cancellation_requests WHERE booking_id IN (SELECT id FROM bookings WHERE customer_id = $1);`,
+            [customerId],
+          );
+          await db.query(
             `DELETE FROM payment_events WHERE provider = 'MOCK' OR provider = 'RAZORPAY' OR provider = 'STRIPE';`,
           );
           await db.query(
