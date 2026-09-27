@@ -143,8 +143,8 @@ export const heroSliderListQuerySchema = z.object({
     .optional()
     .default(20),
   isActive: z
-    .enum(['true', 'false', '1', '0'])
-    .transform((val) => val === 'true' || val === '1')
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .transform((val) => (typeof val === 'boolean' ? val : val === 'true' || val === '1'))
     .optional(),
 });
 
@@ -257,8 +257,8 @@ export const cmsPageListQuerySchema = z.object({
     .optional()
     .default(20),
   isPublished: z
-    .enum(['true', 'false', '1', '0'])
-    .transform((val) => val === 'true' || val === '1')
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .transform((val) => (typeof val === 'boolean' ? val : val === 'true' || val === '1'))
     .optional(),
 });
 
