@@ -599,14 +599,30 @@ export class BookingModal {
     }
   }
 
+  static paymentPollingInterval = null;
+  static isPaying = false;
+  static selectedProvider = 'MOCK';
+
+  static clearIntervals() {
+    if (this.holdTimerInterval) {
+      clearInterval(this.holdTimerInterval);
+      this.holdTimerInterval = null;
+    }
+    if (this.paymentPollingInterval) {
+      clearInterval(this.paymentPollingInterval);
+      this.paymentPollingInterval = null;
+    }
+  }
+
   /**
-   * Render Confirmation / Awaiting Payment State
+   * Render Confirmation / Awaiting Payment State with Live Payment Checkout
    * @param {object} booking
    */
   static renderConfirmation(booking) {
     const container = this.getContainer();
     if (!container) return;
 
+    this.isPaying = false;
     const bookingRef = escapeHtml(booking.bookingReference);
     const totalPrice = formatPrice(booking.totalPrice, booking.currency);
     const partySize = Number(booking.partySize);
@@ -633,6 +649,9 @@ export class BookingModal {
         </div>
 
         <div class="booking-modal-body">
+          <!-- Notification Alert Container -->
+          <div id="booking-alert-box" class="party-alert-box hidden" role="alert"></div>
+
           <!-- 15-Minute Hold Countdown Banner -->
           <div class="hold-countdown-banner" id="hold-countdown-banner">
             <div class="countdown-icon" aria-hidden="true">⏳</div>
@@ -650,11 +669,11 @@ export class BookingModal {
             </div>
             <div class="ref-row">
               <span class="ref-label">Booking Status:</span>
-              <span class="badge badge-warning" id="confirmation-status-badge">AWAITING_PAYMENT</span>
+              <span class="badge badge-warning" id="confirmation-status-badge">${escapeHtml(booking.status || 'AWAITING_PAYMENT')}</span>
             </div>
             <div class="ref-row">
-              <span class="ref-label">Locked Total Amount:</span>
-              <span class="ref-price">${totalPrice}</span>
+              <span class="ref-label">Server-Locked Total Amount:</span>
+              <span class="ref-price" id="confirmation-total-price">${totalPrice}</span>
             </div>
           </div>
 
@@ -669,16 +688,35 @@ export class BookingModal {
             </div>
           </div>
 
-          <!-- Phase 6 Payment Honest Notice -->
-          <div class="phase6-payment-notice">
-            <div class="notice-title">💳 Next Step: Payment Confirmation</div>
-            <p>
-              Your booking is currently in <strong>AWAITING_PAYMENT</strong> status. Complete payment within the hold window to receive an official booking confirmation.
-            </p>
-            <p class="text-muted text-sm">
-              <em>Note: Payment gateway integration (Razorpay / Stripe) will be available in Phase 6.</em>
-            </p>
+          <!-- Phase 6 Live Payment Gateway Integration Panel -->
+          <div class="payment-checkout-card" id="payment-checkout-panel">
+            <div class="payment-section-title">
+              <span>💳</span> Select Payment Gateway
+            </div>
+            <div class="payment-provider-grid">
+              <div class="payment-provider-card ${this.selectedProvider === 'MOCK' ? 'selected' : ''}" data-provider="MOCK">
+                <span class="payment-provider-name">Instant Simulator</span>
+                <span class="payment-provider-desc">Mock Sandbox Gateway</span>
+              </div>
+              <div class="payment-provider-card ${this.selectedProvider === 'STRIPE' ? 'selected' : ''}" data-provider="STRIPE">
+                <span class="payment-provider-name">Stripe</span>
+                <span class="payment-provider-desc">Cards & Global Payments</span>
+              </div>
+              <div class="payment-provider-card ${this.selectedProvider === 'RAZORPAY' ? 'selected' : ''}" data-provider="RAZORPAY">
+                <span class="payment-provider-name">Razorpay</span>
+                <span class="payment-provider-desc">UPI, NetBanking, Cards</span>
+              </div>
+            </div>
+
+            <div style="margin-top: 1rem; text-align: center;">
+              <button type="button" class="btn-primary" id="btn-pay-now" style="width: 100%; padding: 0.85rem;">
+                Pay ${totalPrice} & Confirm Booking &rarr;
+              </button>
+            </div>
           </div>
+
+          <!-- Dynamic Container for Payment In-Flight / Success / Failed States -->
+          <div id="payment-status-container"></div>
         </div>
 
         <div class="booking-modal-footer">
@@ -694,7 +732,23 @@ export class BookingModal {
       : Date.now() + 15 * 60 * 1000;
     this.startHoldCountdown(expiresAt);
 
-    // Attach confirmation listeners
+    // Provider selection listeners
+    container.querySelectorAll('.payment-provider-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        container
+          .querySelectorAll('.payment-provider-card')
+          .forEach((c) => c.classList.remove('selected'));
+        card.classList.add('selected');
+        this.selectedProvider = card.getAttribute('data-provider') || 'MOCK';
+      });
+    });
+
+    // Payment initiation listener
+    container.querySelector('#btn-pay-now')?.addEventListener('click', () => {
+      this.handleInitiatePayment(booking, this.selectedProvider);
+    });
+
+    // Attach footer listeners
     container.querySelector('#booking-modal-close')?.addEventListener('click', () => this.close());
     container.querySelector('#btn-booking-done')?.addEventListener('click', () => this.close());
     container.querySelector('#btn-view-my-bookings')?.addEventListener('click', () => {
@@ -704,11 +758,283 @@ export class BookingModal {
   }
 
   /**
+   * Handle Payment Initiation with server-authoritative amount & idempotency key
+   * @param {object} booking
+   * @param {string} provider
+   */
+  static async handleInitiatePayment(booking, provider = 'MOCK') {
+    if (this.isPaying) return;
+    this.isPaying = true;
+
+    const payBtn = document.getElementById('btn-pay-now');
+    if (payBtn) {
+      payBtn.disabled = true;
+      payBtn.innerHTML = `<span class="status-anim-spinner">🔄</span> Initializing secure payment...`;
+    }
+
+    try {
+      const response = await api.initiatePayment({
+        bookingReference: booking.bookingReference,
+        provider,
+      });
+
+      const paymentData = response?.data || response;
+      this.renderPaymentProcessing(booking, paymentData);
+      this.startPaymentPolling(booking.bookingReference);
+    } catch (err) {
+      this.isPaying = false;
+      if (payBtn) {
+        payBtn.disabled = false;
+        payBtn.innerHTML = `Pay & Confirm Booking &rarr;`;
+      }
+      this.showAlert(err.message || 'Payment initiation failed. Please try again.', 'warning');
+    }
+  }
+
+  /**
+   * Render in-flight payment processing tracker
+   * @param {object} booking
+   * @param {object} payment
+   */
+  static renderPaymentProcessing(booking, payment) {
+    const statusContainer = document.getElementById('payment-status-container');
+    const checkoutPanel = document.getElementById('payment-checkout-panel');
+    if (checkoutPanel) checkoutPanel.classList.add('hidden');
+
+    if (statusContainer) {
+      statusContainer.innerHTML = `
+        <div class="payment-status-card payment-status-in-flight">
+          <span class="status-anim-spinner" aria-hidden="true">🔄</span>
+          <h4 style="margin: 0; font-size: 1.1rem;">Payment Processing in Progress</h4>
+          <p style="margin: 0; font-size: 0.88rem;">
+            Connecting with ${escapeHtml(payment?.provider || 'Gateway')}... Verifying transaction securely.
+          </p>
+          <div style="font-size: 0.8rem; color: #64748b;">
+            Reference: <strong>${escapeHtml(booking.bookingReference)}</strong>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  /**
+   * Bounded status polling for payment confirmation & booking state synchronization
+   * @param {string} bookingReference
+   */
+  static startPaymentPolling(bookingReference) {
+    this.clearIntervals();
+
+    let attempts = 0;
+    const maxAttempts = 15; // 15 attempts @ 2s = 30 seconds
+
+    const poll = async () => {
+      attempts++;
+      try {
+        const [paymentRes, bookingRes] = await Promise.all([
+          api.getPaymentStatus(bookingReference).catch(() => null),
+          api.getBookingByReference(bookingReference).catch(() => null),
+        ]);
+
+        const payment = paymentRes?.data || paymentRes;
+        const currentBooking = bookingRes?.data || bookingRes;
+
+        if (payment?.status === 'SUCCESS' && currentBooking?.status === 'CONFIRMED') {
+          this.clearIntervals();
+          this.isPaying = false;
+          this.renderPaymentSuccess(currentBooking, payment);
+          return;
+        }
+
+        if (payment?.status === 'FAILED') {
+          this.clearIntervals();
+          this.isPaying = false;
+          this.renderPaymentFailed(currentBooking || { bookingReference }, payment);
+          return;
+        }
+
+        if (attempts >= maxAttempts) {
+          this.clearIntervals();
+          this.isPaying = false;
+          this.renderPaymentTimeout(currentBooking || { bookingReference });
+        }
+      } catch {
+        if (attempts >= maxAttempts) {
+          this.clearIntervals();
+          this.isPaying = false;
+          this.renderPaymentTimeout({ bookingReference });
+        }
+      }
+    };
+
+    // Execute first check after 1.5s, then interval
+    setTimeout(poll, 1500);
+    this.paymentPollingInterval = setInterval(poll, 2000);
+  }
+
+  /**
+   * Render Payment Success & Document Download State
+   * @param {object} booking
+   * @param {object} payment
+   */
+  static renderPaymentSuccess(booking, payment) {
+    const statusContainer = document.getElementById('payment-status-container');
+    const holdBanner = document.getElementById('hold-countdown-banner');
+    const statusBadge = document.getElementById('confirmation-status-badge');
+    const checkoutPanel = document.getElementById('payment-checkout-panel');
+
+    if (holdBanner) holdBanner.classList.add('hidden');
+    if (checkoutPanel) checkoutPanel.classList.add('hidden');
+    if (statusBadge) {
+      statusBadge.className = 'badge badge-available';
+      statusBadge.textContent = 'CONFIRMED';
+    }
+
+    if (statusContainer) {
+      const amountPaid = formatPrice(
+        payment?.amount || booking.totalPrice,
+        payment?.currency || booking.currency,
+      );
+
+      statusContainer.innerHTML = `
+        <div class="payment-status-card payment-status-success">
+          <div style="font-size: 2.2rem;">✅</div>
+          <h3 style="margin: 0; color: #15803d; font-size: 1.25rem;">Payment Confirmed & Booking Active!</h3>
+          <p style="margin: 0; font-size: 0.9rem;">
+            Successfully charged <strong>${amountPaid}</strong> via ${escapeHtml(payment?.provider || 'Gateway')}.
+          </p>
+
+          <div class="document-actions-group" style="justify-content: center; width: 100%;">
+            <button type="button" class="btn-doc-download" id="btn-modal-invoice" data-ref="${escapeHtml(booking.bookingReference)}">
+              📄 Download GST Tax Invoice
+            </button>
+            <button type="button" class="btn-doc-download" id="btn-modal-voucher" data-ref="${escapeHtml(booking.bookingReference)}">
+              🎫 Download E-Ticket Voucher
+            </button>
+          </div>
+        </div>
+      `;
+
+      statusContainer.querySelector('#btn-modal-invoice')?.addEventListener('click', (e) => {
+        this.handleDownloadDocument(booking.bookingReference, 'invoice', e.currentTarget);
+      });
+      statusContainer.querySelector('#btn-modal-voucher')?.addEventListener('click', (e) => {
+        this.handleDownloadDocument(booking.bookingReference, 'voucher', e.currentTarget);
+      });
+    }
+  }
+
+  /**
+   * Render Payment Failed State
+   * @param {object} booking
+   * @param {object} payment
+   */
+  static renderPaymentFailed(booking, payment) {
+    const statusContainer = document.getElementById('payment-status-container');
+    const checkoutPanel = document.getElementById('payment-checkout-panel');
+    if (checkoutPanel) checkoutPanel.classList.add('hidden');
+
+    if (statusContainer) {
+      statusContainer.innerHTML = `
+        <div class="payment-status-card payment-status-failed">
+          <div style="font-size: 2rem;">⚠️</div>
+          <h4 style="margin: 0; color: #b91c1c; font-size: 1.15rem;">Payment Transaction Was Not Completed</h4>
+          <p style="margin: 0; font-size: 0.88rem;">
+            The payment gateway reported a failure. Your reservation hold remains active until the timer expires.
+          </p>
+          <button type="button" class="btn-secondary" id="btn-retry-payment-modal" style="margin-top: 0.5rem;">
+            🔄 Try Another Payment Method
+          </button>
+        </div>
+      `;
+
+      statusContainer.querySelector('#btn-retry-payment-modal')?.addEventListener('click', () => {
+        statusContainer.innerHTML = '';
+        if (checkoutPanel) checkoutPanel.classList.remove('hidden');
+        const payBtn = document.getElementById('btn-pay-now');
+        if (payBtn) {
+          payBtn.disabled = false;
+          payBtn.innerHTML = `Pay & Confirm Booking &rarr;`;
+        }
+      });
+    }
+  }
+
+  /**
+   * Render Payment Timeout / Asynchronous State
+   * @param {object} booking
+   */
+  static renderPaymentTimeout(booking) {
+    const statusContainer = document.getElementById('payment-status-container');
+    if (statusContainer) {
+      statusContainer.innerHTML = `
+        <div class="payment-status-card payment-status-in-flight">
+          <div style="font-size: 1.8rem;">⏳</div>
+          <h4 style="margin: 0; font-size: 1.1rem;">Payment Verification in Progress</h4>
+          <p style="margin: 0; font-size: 0.88rem;">
+            Your payment is taking slightly longer to confirm with the bank. You can refresh below or check status in My Bookings.
+          </p>
+          <button type="button" class="btn-secondary" id="btn-manual-refresh-status" style="margin-top: 0.5rem;">
+            🔄 Refresh Status Now
+          </button>
+        </div>
+      `;
+
+      statusContainer.querySelector('#btn-manual-refresh-status')?.addEventListener('click', () => {
+        this.startPaymentPolling(booking.bookingReference);
+      });
+    }
+  }
+
+  /**
+   * Securely download document PDF via presigned URL
+   * @param {string} bookingReference
+   * @param {'invoice'|'voucher'} documentType
+   * @param {HTMLButtonElement} btn
+   */
+  static async handleDownloadDocument(bookingReference, documentType, btn) {
+    if (!bookingReference) return;
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="status-anim-spinner">🔄</span> Opening...`;
+    }
+
+    try {
+      let res;
+      if (documentType === 'invoice') {
+        res = await api.downloadInvoice(bookingReference);
+      } else {
+        res = await api.downloadVoucher(bookingReference);
+      }
+
+      const downloadUrl = res?.downloadUrl || res?.data?.downloadUrl;
+      if (downloadUrl) {
+        window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        throw new Error('Download URL not provided by server');
+      }
+    } catch (err) {
+      this.showAlert(
+        `Failed to download ${documentType}: ${err.message || 'Document is still generating'}`,
+        'warning',
+      );
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+  }
+
+  /**
    * Start live hold countdown timer
    * @param {number} expiresAtMs
    */
   static startHoldCountdown(expiresAtMs) {
-    this.clearIntervals();
+    if (this.holdTimerInterval) {
+      clearInterval(this.holdTimerInterval);
+      this.holdTimerInterval = null;
+    }
 
     const updateTimer = () => {
       const display = document.getElementById('hold-timer-display');
@@ -718,7 +1044,10 @@ export class BookingModal {
       if (remainingSec <= 0) {
         display.innerHTML =
           '<span class="timer-expired">Hold Expired. Please create a new booking.</span>';
-        this.clearIntervals();
+        if (this.holdTimerInterval) {
+          clearInterval(this.holdTimerInterval);
+          this.holdTimerInterval = null;
+        }
         return;
       }
 

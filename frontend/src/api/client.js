@@ -335,9 +335,102 @@ export class ApiClient {
     return this.get(`/bookings/${encodeURIComponent(reference)}`, options);
   }
 
-  async cancelBooking(reference, reason = 'Customer requested cancellation', options = {}) {
+  async cancelBooking(reference, reason = 'Customer requested cancellation', options) {
     if (!reference) throw new Error('Booking reference is required');
-    return this.post(`/bookings/${encodeURIComponent(reference)}/cancel`, { reason }, options);
+    return options
+      ? this.requestCancellation(reference, { reason }, options)
+      : this.requestCancellation(reference, { reason });
+  }
+
+  // --- Phase 6 Payment, Document & Cancellation APIs ---
+
+  /**
+   * Initiates payment for a booking in AWAITING_PAYMENT status.
+   * @param {{ bookingReference: string, provider?: string }} data
+   * @param {string} [idempotencyKey]
+   * @param {object} [options]
+   */
+  async initiatePayment(data, idempotencyKey = null, options = {}) {
+    if (!data?.bookingReference) {
+      throw new Error('Booking reference is required to initiate payment');
+    }
+
+    const key =
+      idempotencyKey ||
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          }));
+
+    const headers = {
+      'idempotency-key': key,
+      ...(options.headers || {}),
+    };
+
+    return this.post('/payments/initiate', data, {
+      ...options,
+      headers,
+    });
+  }
+
+  /**
+   * Retrieves payment transaction status for a booking reference.
+   * @param {string} bookingReference
+   * @param {object} [options]
+   */
+  async getPaymentStatus(bookingReference, options = {}) {
+    if (!bookingReference) throw new Error('Booking reference is required');
+    return this.get(`/payments/${encodeURIComponent(bookingReference)}/status`, options);
+  }
+
+  /**
+   * Customer submits a cancellation request for an eligible CONFIRMED booking.
+   * @param {string} bookingReference
+   * @param {{ reason: string } | string} data
+   * @param {object} [options]
+   */
+  async requestCancellation(bookingReference, data, options = {}) {
+    if (!bookingReference) throw new Error('Booking reference is required');
+    const reason = typeof data === 'string' ? data : data?.reason;
+    if (!reason) throw new Error('Cancellation reason is required');
+    return this.post(
+      `/bookings/${encodeURIComponent(bookingReference)}/cancellation`,
+      { reason },
+      options,
+    );
+  }
+
+  /**
+   * Retrieves cancellation request and refund settlement status for a booking.
+   * @param {string} bookingReference
+   * @param {object} [options]
+   */
+  async getCancellationDetails(bookingReference, options = {}) {
+    if (!bookingReference) throw new Error('Booking reference is required');
+    return this.get(`/bookings/${encodeURIComponent(bookingReference)}/cancellation`, options);
+  }
+
+  /**
+   * Obtains a secure time-limited presigned download URL for GST Tax Invoice PDF.
+   * @param {string} bookingReference
+   * @param {object} [options]
+   */
+  async downloadInvoice(bookingReference, options = {}) {
+    if (!bookingReference) throw new Error('Booking reference is required');
+    return this.get(`/documents/invoice/${encodeURIComponent(bookingReference)}/download`, options);
+  }
+
+  /**
+   * Obtains a secure time-limited presigned download URL for E-Ticket Voucher PDF.
+   * @param {string} bookingReference
+   * @param {object} [options]
+   */
+  async downloadVoucher(bookingReference, options = {}) {
+    if (!bookingReference) throw new Error('Booking reference is required');
+    return this.get(`/documents/voucher/${encodeURIComponent(bookingReference)}/download`, options);
   }
 }
 
