@@ -6,6 +6,7 @@ import {
 import { renderInvoiceHtml } from '../../backend/src/modules/document/templates/invoice.template.js';
 import { renderVoucherHtml } from '../../backend/src/modules/document/templates/voucher.template.js';
 import { DocumentService } from '../../backend/src/modules/document/services/document.service.js';
+import { calculateGstBreakdown } from '../../backend/src/modules/document/services/gstCalculator.js';
 
 describe('Document Generation Domain & Services (Phase 6 Step 8)', () => {
   describe('1. HTML Escaping & Security Sanitization', () => {
@@ -30,18 +31,43 @@ describe('Document Generation Domain & Services (Phase 6 Step 8)', () => {
   });
 
   describe('2. GST Statutory Tax Invoice Calculation & Formatting', () => {
-    it('should enforce exact integer arithmetic for 5% inclusive GST (SAC 998555)', () => {
-      const totalAmount = 150000; // ₹1,500.00 (minor units)
-      const taxableAmount = Math.round((totalAmount * 100) / 105); // 142857 (₹1,428.57)
-      const gstAmount = totalAmount - taxableAmount; // 7143 (₹71.43)
+    it('should enforce exact BigInt integer arithmetic for 5% inclusive GST (SAC 998555)', () => {
+      const breakdown = calculateGstBreakdown(150000, 5, '998555');
 
-      expect(taxableAmount + gstAmount).toBe(totalAmount);
-      expect(taxableAmount).toBe(142857);
-      expect(gstAmount).toBe(7143);
+      expect(breakdown.taxableAmount + breakdown.gstAmount).toBe(150000);
+      expect(breakdown.taxableAmount).toBe(142857);
+      expect(breakdown.gstAmount).toBe(7143);
+      expect(breakdown.cgstAmount).toBe(3571);
+      expect(breakdown.sgstAmount).toBe(3572);
+      expect(breakdown.cgstAmount + breakdown.sgstAmount).toBe(breakdown.gstAmount);
+      expect(breakdown.sacCode).toBe('998555');
+      expect(breakdown.gstRatePercent).toBe(5);
+    });
 
-      const cgst = Math.floor(gstAmount / 2);
-      const sgst = gstAmount - cgst;
-      expect(cgst + sgst).toBe(gstAmount);
+    it('should maintain exact integer precision on multi-million large minor-unit amounts without floating point drift', () => {
+      // ₹10,00,00,000.00 = 1,000,000,000 paise
+      const largeTotal = 1000000000;
+      const breakdown = calculateGstBreakdown(largeTotal, 5);
+
+      expect(breakdown.taxableAmount + breakdown.gstAmount).toBe(largeTotal);
+      expect(breakdown.cgstAmount + breakdown.sgstAmount).toBe(breakdown.gstAmount);
+      expect(breakdown.taxableAmount).toBe(952380952);
+      expect(breakdown.gstAmount).toBe(47619048);
+      expect(breakdown.cgstAmount).toBe(23809524);
+      expect(breakdown.sgstAmount).toBe(23809524);
+    });
+
+    it('should support configurable GST rate and zero tax exemption', () => {
+      const zeroTax = calculateGstBreakdown(50000, 0);
+      expect(zeroTax.taxableAmount).toBe(50000);
+      expect(zeroTax.gstAmount).toBe(0);
+      expect(zeroTax.cgstAmount).toBe(0);
+      expect(zeroTax.sgstAmount).toBe(0);
+
+      const twelvePercent = calculateGstBreakdown(112000, 12);
+      expect(twelvePercent.taxableAmount).toBe(100000);
+      expect(twelvePercent.gstAmount).toBe(12000);
+      expect(twelvePercent.taxableAmount + twelvePercent.gstAmount).toBe(112000);
     });
 
     it('should render statutory invoice HTML with required legal and financial details', () => {
@@ -369,6 +395,88 @@ describe('Document Generation Domain & Services (Phase 6 Step 8)', () => {
       expect(voucher.voucherCode).toBe('VCH-20260926-EXISTING');
       expect(mockPdfGenerator.generatePdf).not.toHaveBeenCalled();
       expect(mockTicketVoucherRepo.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('5. Booking Confirmation to Document Generation Trigger Hook', () => {
+    it('should invoke onBookingConfirmed hook after successful booking confirmation', async () => {
+      const onBookingConfirmedMock = vi.fn().mockResolvedValue(undefined);
+
+      const mockDb: any = {
+        withTransaction: vi.fn().mockImplementation(async (cb) => cb({})),
+      };
+      const mockBookingRepo: any = {
+        findById: vi.fn().mockResolvedValue({
+          id: 'booking-trigger-1',
+          departureId: 'dep-1',
+          holdId: 'hold-1',
+          status: 'AWAITING_PAYMENT',
+          partySize: 2,
+          totalPrice: 150000,
+          currency: 'INR',
+        }),
+        updateStatusGuarded: vi.fn().mockResolvedValue({
+          id: 'booking-trigger-1',
+          status: 'CONFIRMED',
+        }),
+      };
+      const mockHoldRepo: any = {
+        findById: vi.fn().mockResolvedValue({
+          id: 'hold-1',
+          departureId: 'dep-1',
+          status: 'ACTIVE',
+          expiresAt: new Date(Date.now() + 60000),
+          heldSeats: 2,
+        }),
+        updateStatusGuarded: vi.fn().mockResolvedValue({
+          id: 'hold-1',
+          status: 'COMMITTED',
+        }),
+      };
+      const mockDepartureRepo: any = {
+        findByIdForUpdate: vi.fn().mockResolvedValue({
+          id: 'dep-1',
+          bookedSeats: 0,
+          totalSeatCapacity: 10,
+        }),
+        incrementBookedSeats: vi.fn().mockResolvedValue(undefined),
+      };
+      const mockPaymentTxRepo: any = {
+        findByBookingId: vi.fn().mockResolvedValue([
+          {
+            id: 'pay-tx-1',
+            bookingId: 'booking-trigger-1',
+            status: 'SUCCESS',
+            amount: 150000,
+            currency: 'INR',
+          },
+        ]),
+      };
+
+      const { BookingService } =
+        await import('../../backend/src/modules/booking/services/booking.service.js');
+      const bookingService = new BookingService(
+        mockDb,
+        mockBookingRepo,
+        {} as any,
+        {} as any,
+        mockDepartureRepo,
+        mockHoldRepo,
+        {} as any,
+        {} as any,
+        {} as any,
+        mockPaymentTxRepo,
+        onBookingConfirmedMock,
+      );
+
+      const result = await bookingService.confirmBooking({
+        bookingId: 'booking-trigger-1',
+        paymentVerified: true,
+      });
+
+      expect(result.status).toBe('CONFIRMED');
+      expect(onBookingConfirmedMock).toHaveBeenCalledTimes(1);
+      expect(onBookingConfirmedMock).toHaveBeenCalledWith('booking-trigger-1');
     });
   });
 });

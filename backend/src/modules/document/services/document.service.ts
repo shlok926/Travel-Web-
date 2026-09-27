@@ -8,8 +8,15 @@ import {
   TicketVoucherEntity,
 } from '../repositories/ticketVoucher.repository.js';
 import { PdfGeneratorService } from './pdfGenerator.service.js';
+import { calculateGstBreakdown } from './gstCalculator.js';
 import { renderInvoiceHtml } from '../templates/invoice.template.js';
 import { renderVoucherHtml } from '../templates/voucher.template.js';
+import {
+  AppError,
+  ErrorCodes,
+  DocumentDownloadResponse,
+  TokenPayload,
+} from '../../../../../shared/src/index.js';
 
 export interface GeneratedDocumentsResult {
   invoice: TaxInvoiceEntity;
@@ -71,10 +78,9 @@ export class DocumentService {
       );
     }
 
-    // 5. Calculate GST amounts in integer minor units (5% inclusive for Tour Operator SAC 998555)
-    const totalAmount = Number(booking.totalPrice);
-    const taxableAmount = Math.round((totalAmount * 100) / 105);
-    const gstAmount = totalAmount - taxableAmount;
+    // 5. Calculate GST amounts using pure BigInt arbitrary-precision integer arithmetic
+    const gstBreakdown = calculateGstBreakdown(booking.totalPrice);
+    const { taxableAmount, gstAmount, totalAmount } = gstBreakdown;
 
     // 6. Generate deterministic/safe unique invoice number (INV-YYYYMM-XXXX)
     const now = new Date();
@@ -228,5 +234,105 @@ export class DocumentService {
     });
 
     return voucher;
+  }
+
+  /**
+   * Generates a secure, time-limited presigned download URL for a booking's GST Tax Invoice.
+   * Enforces customer ownership isolation or admin authorization prior to URL creation.
+   */
+  async getInvoiceDownloadUrl(
+    bookingReference: string,
+    user: TokenPayload,
+    expiresInSeconds: number = 900,
+  ): Promise<DocumentDownloadResponse> {
+    if (!user || !user.userId) {
+      throw AppError.unauthorized('Authentication required', ErrorCodes.UNAUTHORIZED);
+    }
+
+    // 1. Fetch booking enforcing ownership or admin RBAC
+    const booking =
+      user.role === 'ADMIN'
+        ? await this.bookingRepo.findByReference(bookingReference)
+        : await this.bookingRepo.findByReferenceAndCustomer(bookingReference, user.userId);
+
+    if (!booking) {
+      throw AppError.notFound('Booking not found', ErrorCodes.BOOKING_NOT_FOUND);
+    }
+
+    // 2. Fetch completed invoice record
+    const invoices = await this.taxInvoiceRepo.findByBookingId(booking.id);
+    const completedInvoice = invoices.find((inv) => inv.pdfStorageKey !== null);
+
+    if (!completedInvoice || !completedInvoice.pdfStorageKey) {
+      throw AppError.notFound(
+        `Tax invoice document not found for booking '${bookingReference}'.`,
+        ErrorCodes.DOCUMENT_NOT_FOUND,
+      );
+    }
+
+    // 3. Generate short-lived presigned download URL via storage abstraction
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+    const downloadUrl = await this.storageService.getDownloadUrl(
+      this.privateBucket,
+      completedInvoice.pdfStorageKey,
+      expiresInSeconds,
+    );
+
+    return {
+      documentType: 'INVOICE',
+      bookingReference: booking.bookingReference,
+      downloadUrl,
+      expiresAt,
+    };
+  }
+
+  /**
+   * Generates a secure, time-limited presigned download URL for a booking's E-Ticket Voucher.
+   * Enforces customer ownership isolation or admin authorization prior to URL creation.
+   */
+  async getVoucherDownloadUrl(
+    bookingReference: string,
+    user: TokenPayload,
+    expiresInSeconds: number = 900,
+  ): Promise<DocumentDownloadResponse> {
+    if (!user || !user.userId) {
+      throw AppError.unauthorized('Authentication required', ErrorCodes.UNAUTHORIZED);
+    }
+
+    // 1. Fetch booking enforcing ownership or admin RBAC
+    const booking =
+      user.role === 'ADMIN'
+        ? await this.bookingRepo.findByReference(bookingReference)
+        : await this.bookingRepo.findByReferenceAndCustomer(bookingReference, user.userId);
+
+    if (!booking) {
+      throw AppError.notFound('Booking not found', ErrorCodes.BOOKING_NOT_FOUND);
+    }
+
+    // 2. Fetch completed voucher record
+    const vouchers = await this.ticketVoucherRepo.findByBookingId(booking.id);
+    const completedVoucher = vouchers.find((vch) => vch.pdfStorageKey !== null);
+
+    if (!completedVoucher || !completedVoucher.pdfStorageKey) {
+      throw AppError.notFound(
+        `E-Ticket voucher document not found for booking '${bookingReference}'.`,
+        ErrorCodes.DOCUMENT_NOT_FOUND,
+      );
+    }
+
+    // 3. Generate short-lived presigned download URL via storage abstraction
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+    const downloadUrl = await this.storageService.getDownloadUrl(
+      this.privateBucket,
+      completedVoucher.pdfStorageKey,
+      expiresInSeconds,
+    );
+
+    return {
+      documentType: 'VOUCHER',
+      bookingReference: booking.bookingReference,
+      downloadUrl,
+      expiresAt,
+    };
   }
 }

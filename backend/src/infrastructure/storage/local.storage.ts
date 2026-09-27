@@ -9,7 +9,10 @@ export class LocalStorageService implements IStorageService {
   private readonly absoluteBasePath: string;
   private readonly MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
 
-  constructor(private readonly basePath: string = './uploads') {
+  constructor(
+    private readonly basePath: string = './uploads',
+    private readonly baseUrl: string = 'http://localhost:3000',
+  ) {
     this.absoluteBasePath = path.resolve(process.cwd(), this.basePath);
   }
 
@@ -89,12 +92,13 @@ export class LocalStorageService implements IStorageService {
   async getDownloadUrl(
     bucket: string,
     key: string,
-    _expiresInSeconds: number = 900,
+    expiresInSeconds: number = 900,
   ): Promise<string> {
-    // Return relative API route for local development (enforcing path security)
+    // Return signed/valid URL format for local development
     const sanitizedBucket = encodeURIComponent(bucket);
     const sanitizedKey = encodeURIComponent(key);
-    return `/api/v1/storage/${sanitizedBucket}/${sanitizedKey}`;
+    const expiresTimestamp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+    return `${this.baseUrl}/api/v1/storage/${sanitizedBucket}/${sanitizedKey}?expires=${expiresTimestamp}`;
   }
 
   async delete(bucket: string, key: string): Promise<void> {

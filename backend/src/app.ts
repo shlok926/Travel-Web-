@@ -256,6 +256,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     bookingService,
     paymentService,
     paymentWebhookService,
+    documentService,
     config,
   });
 

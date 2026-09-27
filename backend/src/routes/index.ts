@@ -31,6 +31,7 @@ import {
   paymentRoutes,
   webhookRoutes,
 } from '../modules/payment/index.js';
+import { DocumentService, documentRoutes } from '../modules/document/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -46,6 +47,7 @@ export interface ApiRoutesOptions {
   bookingService?: BookingService;
   paymentService?: PaymentService;
   paymentWebhookService?: PaymentWebhookService;
+  documentService?: DocumentService;
   config?: EnvConfig;
 }
 
@@ -134,6 +136,14 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(webhookRoutes, {
       prefix: '/webhooks',
       webhookService: options.paymentWebhookService,
+    });
+  }
+
+  // 12. Register Document Routes under /api/v1/documents (Phase 6 Step 9)
+  if (options.documentService) {
+    await fastify.register(documentRoutes, {
+      prefix: '/documents',
+      documentService: options.documentService,
     });
   }
 };

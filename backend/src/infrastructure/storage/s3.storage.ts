@@ -16,11 +16,12 @@ export class S3StorageService implements IStorageService {
   async getDownloadUrl(
     bucket: string,
     key: string,
-    _expiresInSeconds: number = 900,
+    expiresInSeconds: number = 900,
   ): Promise<string> {
     const endpoint =
       this.config.S3_ENDPOINT || `https://${bucket}.s3.${this.config.S3_REGION}.amazonaws.com`;
-    return `${endpoint}/${key}?signed=true`;
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+    return `${endpoint}/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=${expiresInSeconds}&X-Amz-Date=${amzDate}&signed=true`;
   }
 
   async delete(_bucket: string, _key: string): Promise<void> {

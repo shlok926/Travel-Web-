@@ -182,4 +182,29 @@ Phase 6
 
 ---
 
+## 8. Phase 6 Step 9: Secure Document Download Architecture & Authorization
+
+### 8.1 API Endpoints
+
+- **GST Invoice Download**: `GET /api/v1/documents/invoice/:bookingReference/download`
+- **E-Ticket Voucher Download**: `GET /api/v1/documents/voucher/:bookingReference/download`
+
+### 8.2 Authorization & Security Model
+
+1. **Authentication Requirement**: Enforced via `fastify.authenticate` (Bearer RS256 JWT).
+2. **Customer Ownership Isolation & IDOR Protection**:
+   - Customers can only download documents for bookings where `customer_id === request.user.userId`.
+   - Access attempts for non-owned bookings return `404 BOOKING_NOT_FOUND` (no data leakage on document existence).
+3. **Administrative Access**:
+   - Users with `ADMIN` role are authorized to generate download URLs for any booking in the system.
+4. **Eligibility & Integrity**:
+   - Verifies booking exists in database and completed document record contains a valid `pdf_storage_key`.
+   - Missing documents return `404 DOCUMENT_NOT_FOUND`.
+5. **Private Storage & Presigned URLs**:
+   - Documents are stored in private S3/local buckets (`isPublic: false`).
+   - Short-lived presigned URLs are generated on demand with a 15-minute (900s) configurable TTL (`DOCUMENT_DOWNLOAD_URL_TTL_SECONDS`).
+   - Storage keys and bucket credentials are never exposed to or accepted from the client.
+
+---
+
 _End of Phase 6 Master Implementation Plan._

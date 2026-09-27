@@ -96,6 +96,7 @@ export class BookingService {
     private readonly itineraryRepo: ItineraryRepository,
     private readonly destinationRepo: DestinationRepository,
     private readonly paymentTxRepo?: PaymentTransactionRepository,
+    private readonly onBookingConfirmed?: (bookingId: string) => Promise<void> | void,
   ) {}
 
   /**
@@ -411,7 +412,7 @@ export class BookingService {
       );
     }
 
-    return this.db.withTransaction(async (client: pg.PoolClient) => {
+    const confirmedBooking = await this.db.withTransaction(async (client: pg.PoolClient) => {
       // 1. Initial pre-lock booking check to retrieve departureId
       const initialBooking = await this.bookingRepo.findById(command.bookingId, client);
       if (!initialBooking) {
@@ -608,6 +609,17 @@ export class BookingService {
 
       return confirmedBooking;
     });
+
+    // Asynchronous Document Generation & Post-Confirmation Hook (Phase 6 Step 8)
+    if (this.onBookingConfirmed) {
+      try {
+        await this.onBookingConfirmed(confirmedBooking.id);
+      } catch {
+        // Enqueue/notification errors do not roll back the committed booking in PostgreSQL
+      }
+    }
+
+    return confirmedBooking;
   }
 
   /**
