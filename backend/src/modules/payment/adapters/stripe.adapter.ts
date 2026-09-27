@@ -5,10 +5,13 @@ import {
   GatewayOrderResult,
   VerifyPaymentRequest,
   GetPaymentStatusRequest,
+  RefundGatewayPaymentRequest,
+  RefundGatewayResult,
 } from './paymentGateway.adapter.js';
 import {
   PaymentProvider,
   PaymentStatus,
+  RefundSettlementStatus,
   SupportedCurrency,
   NormalizedPaymentResult,
   AppError,
@@ -181,6 +184,64 @@ export class StripePaymentGatewayAdapter implements PaymentGatewayAdapter {
     }
   }
 
+  /**
+   * Initiates a refund through Stripe API for an eligible payment.
+   */
+  async refundPayment(request: RefundGatewayPaymentRequest): Promise<RefundGatewayResult> {
+    const stripe = this.ensureConfigured();
+
+    if (!request.gatewayOrderId && !request.gatewayPaymentId) {
+      throw AppError.badRequest(
+        'Stripe PaymentIntent ID or Charge ID is required for refund processing',
+        [],
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
+    if (request.amount <= 0) {
+      throw AppError.badRequest(
+        'Refund amount must be greater than zero',
+        [],
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
+    try {
+      const refundParams: Stripe.RefundCreateParams = {
+        amount: request.amount, // minor units (cents / paise)
+        metadata: {
+          reason: request.reason ?? 'Customer cancellation',
+          receipt: request.receipt ?? '',
+          ...(request.notes ?? {}),
+        },
+      };
+
+      if (request.gatewayOrderId) {
+        refundParams.payment_intent = request.gatewayOrderId;
+      } else if (request.gatewayPaymentId) {
+        refundParams.charge = request.gatewayPaymentId;
+      }
+
+      const refund = await stripe.refunds.create(refundParams);
+      const status = this.mapStripeRefundStatus(refund.status);
+
+      const chargeId =
+        typeof refund.charge === 'string' ? refund.charge : (refund.charge?.id ?? null);
+
+      return {
+        provider: this.provider,
+        gatewayRefundId: refund.id,
+        gatewayPaymentId: chargeId ?? request.gatewayPaymentId ?? null,
+        amount: refund.amount,
+        currency: refund.currency.toUpperCase() as SupportedCurrency,
+        status,
+        rawPayload: refund as unknown as Record<string, unknown>,
+      };
+    } catch (err: unknown) {
+      this.normalizeAndThrowError(err, 'Failed to process Stripe refund');
+    }
+  }
+
   private mapStripeStatus(status: string): PaymentStatus {
     switch (status) {
       case 'succeeded':
@@ -194,6 +255,20 @@ export class StripePaymentGatewayAdapter implements PaymentGatewayAdapter {
         return 'FAILED';
       default:
         return 'PENDING';
+    }
+  }
+
+  private mapStripeRefundStatus(status: string | null | undefined): RefundSettlementStatus {
+    switch (status) {
+      case 'succeeded':
+        return 'SETTLED';
+      case 'pending':
+        return 'PROCESSING';
+      case 'failed':
+      case 'canceled':
+        return 'FAILED';
+      default:
+        return 'PROCESSING';
     }
   }
 

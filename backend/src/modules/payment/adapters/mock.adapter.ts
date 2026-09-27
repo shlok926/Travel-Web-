@@ -4,6 +4,8 @@ import {
   GatewayOrderResult,
   VerifyPaymentRequest,
   GetPaymentStatusRequest,
+  RefundGatewayPaymentRequest,
+  RefundGatewayResult,
 } from './paymentGateway.adapter.js';
 import {
   PaymentProvider,
@@ -122,6 +124,51 @@ export class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
       rawPayload: {
         identifier,
         status: isFailed ? 'failed' : 'captured',
+      },
+    };
+  }
+
+  /**
+   * Processes a deterministic mock refund.
+   */
+  async refundPayment(request: RefundGatewayPaymentRequest): Promise<RefundGatewayResult> {
+    if (request.amount < 0) {
+      throw AppError.badRequest(
+        'Refund amount cannot be negative',
+        [],
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
+    // Controlled failure simulation
+    const identifier = request.gatewayPaymentId ?? request.gatewayOrderId ?? '';
+    if (identifier.includes('FAIL_REFUND') || request.notes?.forceFail === 'true') {
+      throw new AppError(
+        'Mock payment gateway simulated refund failure',
+        400,
+        ErrorCodes.REFUND_FAILED,
+      );
+    }
+
+    const refundSuffix = request.receipt
+      ? request.receipt.slice(-8)
+      : Math.random().toString(36).slice(2, 8).toUpperCase();
+    const gatewayRefundId = `rfnd_mock_${refundSuffix}`;
+
+    return {
+      provider: this.provider,
+      gatewayRefundId,
+      gatewayPaymentId: request.gatewayPaymentId ?? null,
+      amount: request.amount,
+      currency: request.currency,
+      status: 'SETTLED',
+      rawPayload: {
+        id: gatewayRefundId,
+        payment_id: request.gatewayPaymentId,
+        amount: request.amount,
+        currency: request.currency,
+        status: 'processed',
+        created_at: Math.floor(Date.now() / 1000),
       },
     };
   }

@@ -33,9 +33,12 @@ import {
 import {
   PaymentTransactionRepository,
   PaymentEventRepository,
+  CancellationRequestRepository,
+  RefundSettlementRepository,
   PaymentGatewayFactory,
   PaymentService,
   PaymentWebhookService,
+  CancellationService,
 } from './modules/payment/index.js';
 import {
   TaxInvoiceRepository,
@@ -77,9 +80,12 @@ export interface AppDependencies {
   bookingService?: BookingService;
   paymentTxRepo?: PaymentTransactionRepository;
   paymentEventRepo?: PaymentEventRepository;
+  cancellationRequestRepo?: CancellationRequestRepository;
+  refundSettlementRepo?: RefundSettlementRepository;
   gatewayFactory?: PaymentGatewayFactory;
   paymentService?: PaymentService;
   paymentWebhookService?: PaymentWebhookService;
+  cancellationService?: CancellationService;
   taxInvoiceRepo?: TaxInvoiceRepository;
   ticketVoucherRepo?: TicketVoucherRepository;
   pdfGenerator?: PdfGeneratorService;
@@ -101,6 +107,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   bookingService: BookingService;
   paymentService: PaymentService;
   paymentWebhookService: PaymentWebhookService;
+  cancellationRequestRepo: CancellationRequestRepository;
+  refundSettlementRepo: RefundSettlementRepository;
+  cancellationService: CancellationService;
   taxInvoiceRepo: TaxInvoiceRepository;
   ticketVoucherRepo: TicketVoucherRepository;
   documentService: DocumentService;
@@ -183,6 +192,10 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const idempotencyRepo = dependencies.idempotencyRepo ?? new IdempotencyRepository(db);
   const paymentTxRepo = dependencies.paymentTxRepo ?? new PaymentTransactionRepository(db);
   const paymentEventRepo = dependencies.paymentEventRepo ?? new PaymentEventRepository(db);
+  const cancellationRequestRepo =
+    dependencies.cancellationRequestRepo ?? new CancellationRequestRepository(db);
+  const refundSettlementRepo =
+    dependencies.refundSettlementRepo ?? new RefundSettlementRepository(db);
   const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
 
   // Instantiate Booking Layer (Phase 5 & 6)
@@ -208,6 +221,17 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   const paymentWebhookService =
     dependencies.paymentWebhookService ??
     new PaymentWebhookService(db, paymentTxRepo, paymentEventRepo, config, bookingService);
+  const cancellationService =
+    dependencies.cancellationService ??
+    new CancellationService(
+      db,
+      bookingRepo,
+      departureRepo,
+      cancellationRequestRepo,
+      refundSettlementRepo,
+      paymentTxRepo,
+      gatewayFactory,
+    );
 
   // Instantiate Document Services (Phase 6 Step 8)
   const taxInvoiceRepo = dependencies.taxInvoiceRepo ?? new TaxInvoiceRepository(db);
@@ -256,6 +280,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     bookingService,
     paymentService,
     paymentWebhookService,
+    cancellationService,
     documentService,
     config,
   });
@@ -275,6 +300,9 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     bookingService,
     paymentService,
     paymentWebhookService,
+    cancellationRequestRepo,
+    refundSettlementRepo,
+    cancellationService,
     taxInvoiceRepo,
     ticketVoucherRepo,
     documentService,

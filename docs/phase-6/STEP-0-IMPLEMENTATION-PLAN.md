@@ -207,4 +207,48 @@ Phase 6
 
 ---
 
+## 9. Phase 6 Step 10 — Cancellation & Refund Processing Architecture
+
+### 9.1 Authoritative Cancellation Policy (`DEC-007`)
+
+Cancellation eligibility and refund amounts are evaluated dynamically using the authoritative `DEC-007` Tiered Schedule:
+
+| Cancellation Window Prior to Departure | Refund Percentage | Agency Cancellation Fee |
+| :------------------------------------- | :---------------- | :---------------------- |
+| **Greater than 30 Days**               | 90% Refund        | 10% Processing Fee      |
+| **Between 15 and 30 Days**             | 50% Refund        | 50% Cancellation Fee    |
+| **Between 7 and 14 Days**              | 25% Refund        | 75% Cancellation Fee    |
+| **Less than 7 Days / Past Departure**  | 0% Refund         | 100% Non-refundable     |
+
+- **Exact Monetary Arithmetic**: All calculations use integer minor units (paise/cents) via BigInt math:
+  $$\text{refundAmount} = \lfloor (\text{totalPrice} \times \text{refundPercentage}) / 100 \rfloor$$
+  $$\text{penaltyAmount} = \text{totalPrice} - \text{refundAmount}$$
+  Invariant: $\text{refundAmount} + \text{penaltyAmount} \equiv \text{totalPrice}$.
+
+### 9.2 Canonical Workflow & Endpoints
+
+1. **Customer Request**: `POST /api/v1/bookings/:bookingReference/cancellation`
+   - Enforces customer ownership (`customer_id === request.user.userId`). Non-owner returns `404 BOOKING_NOT_FOUND`.
+   - Strictly applies to `CONFIRMED` bookings.
+   - Evaluates policy dynamically and persists `cancellation_requests` in `PENDING_APPROVAL`.
+2. **Customer / Admin Query**: `GET /api/v1/bookings/:bookingReference/cancellation`
+   - Returns request status and refund settlement history.
+3. **Admin Review Queue**: `GET /api/v1/admin/cancellations`
+   - Enforces `ADMIN` role. Returns paginated review queue.
+4. **Admin Rejection**: `POST /api/v1/admin/cancellations/:cancellationId/reject`
+   - Sets `cancellation_requests.status = 'REJECTED'`.
+   - Leaves booking `CONFIRMED`, releases zero seats, issues zero refunds.
+5. **Admin Authorization & Settlement**: `POST /api/v1/admin/cancellations/:cancellationId/authorize`
+   - Executes payment gateway refund via provider-neutral `PaymentGatewayAdapter.refundPayment(...)`.
+   - Single atomic PostgreSQL transaction with canonical lock ordering:
+     $$\text{departure\_schedules} \rightarrow \text{bookings} \rightarrow \text{payment\_transactions}$$
+   - Guarded status transitions:
+     - `cancellation_requests`: `PENDING_APPROVAL` $\rightarrow$ `COMPLETED`
+     - `refund_settlements`: created with status `SETTLED`
+     - `bookings`: `CONFIRMED` $\rightarrow$ `CANCELLED`
+     - `departure_schedules.booked_seats`: decremented by `party_size` exactly once
+     - `payment_transactions`: `SUCCESS` $\rightarrow$ `REFUNDED`
+
+---
+
 _End of Phase 6 Master Implementation Plan._

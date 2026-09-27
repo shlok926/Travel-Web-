@@ -6,10 +6,13 @@ import {
   GatewayOrderResult,
   VerifyPaymentRequest,
   GetPaymentStatusRequest,
+  RefundGatewayPaymentRequest,
+  RefundGatewayResult,
 } from './paymentGateway.adapter.js';
 import {
   PaymentProvider,
   PaymentStatus,
+  RefundSettlementStatus,
   SupportedCurrency,
   NormalizedPaymentResult,
   AppError,
@@ -208,6 +211,59 @@ export class RazorpayPaymentGatewayAdapter implements PaymentGatewayAdapter {
     }
   }
 
+  /**
+   * Initiates a refund through Razorpay API for an eligible captured payment.
+   */
+  async refundPayment(request: RefundGatewayPaymentRequest): Promise<RefundGatewayResult> {
+    const razorpay = this.ensureConfigured();
+
+    if (!request.gatewayPaymentId) {
+      throw AppError.badRequest(
+        'Razorpay payment ID is required for refund processing',
+        [],
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
+    if (request.amount <= 0) {
+      throw AppError.badRequest(
+        'Refund amount must be greater than zero',
+        [],
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
+    try {
+      const options: Record<string, unknown> = {
+        amount: request.amount, // minor units (paise)
+        notes: {
+          reason: request.reason ?? 'Customer cancellation',
+          ...(request.notes ?? {}),
+        },
+      };
+
+      if (request.receipt) {
+        options.receipt = request.receipt.slice(0, 40);
+      }
+
+      const refund = await razorpay.payments.refund(request.gatewayPaymentId, options);
+
+      const status = this.mapRazorpayRefundStatus(refund.status);
+
+      return {
+        provider: this.provider,
+        gatewayRefundId: refund.id,
+        gatewayPaymentId: refund.payment_id ?? request.gatewayPaymentId,
+        amount: Number(refund.amount),
+        currency: (refund.currency ?? request.currency).toUpperCase() as SupportedCurrency,
+        status,
+        rawPayload: refund as unknown as Record<string, unknown>,
+      };
+    } catch (err: unknown) {
+      this.normalizeAndThrowError(err, 'Failed to process Razorpay refund');
+    }
+  }
+
   private mapRazorpayStatus(status: string): PaymentStatus {
     switch (status) {
       case 'captured':
@@ -221,6 +277,19 @@ export class RazorpayPaymentGatewayAdapter implements PaymentGatewayAdapter {
         return 'REFUNDED';
       default:
         return 'PENDING';
+    }
+  }
+
+  private mapRazorpayRefundStatus(status: string): RefundSettlementStatus {
+    switch (status) {
+      case 'processed':
+        return 'SETTLED';
+      case 'pending':
+        return 'PROCESSING';
+      case 'failed':
+        return 'FAILED';
+      default:
+        return 'PROCESSING';
     }
   }
 
@@ -248,7 +317,7 @@ export class RazorpayPaymentGatewayAdapter implements PaymentGatewayAdapter {
       );
     }
 
-    // Check for authentication / bad key
+    // Check for authentication / bad key / bad request
     if (
       errorMessage.toLowerCase().includes('authentication') ||
       errorMessage.toLowerCase().includes('unauthorized') ||

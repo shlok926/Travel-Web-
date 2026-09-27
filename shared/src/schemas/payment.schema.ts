@@ -178,6 +178,38 @@ export const authorizeCancellationRequestSchema = z
   .strict();
 
 /**
+ * createCancellationRequestSchema: Validates client payload for POST /api/v1/bookings/:bookingReference/cancellation.
+ * Strict object rejection of client-controlled amounts, currency, customerId, or payment status.
+ */
+export const createCancellationRequestSchema = z
+  .object({
+    reason: z
+      .string({ required_error: 'Cancellation reason is required' })
+      .trim()
+      .min(3, 'Cancellation reason must be at least 3 characters')
+      .max(1000, 'Cancellation reason must not exceed 1000 characters'),
+  })
+  .strict();
+
+/**
+ * rejectCancellationRequestSchema: Validates admin action payload for cancellation rejection.
+ */
+export const rejectCancellationRequestSchema = z
+  .object({
+    adminNotes: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+
+/**
+ * cancellationListQuerySchema: Validates query parameters for admin cancellation list.
+ */
+export const cancellationListQuerySchema = z.object({
+  status: cancellationStatusSchema.optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/**
  * refundSettlementSchema: Validates financial refund settlement audit DTO.
  */
 export const refundSettlementSchema = z.object({

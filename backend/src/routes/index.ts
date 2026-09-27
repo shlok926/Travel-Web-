@@ -28,8 +28,11 @@ import {
 import {
   PaymentService,
   PaymentWebhookService,
+  CancellationService,
   paymentRoutes,
   webhookRoutes,
+  customerCancellationRoutes,
+  adminCancellationRoutes,
 } from '../modules/payment/index.js';
 import { DocumentService, documentRoutes } from '../modules/document/index.js';
 import { localStorageRoutes } from './localStorage.routes.js';
@@ -48,6 +51,7 @@ export interface ApiRoutesOptions {
   bookingService?: BookingService;
   paymentService?: PaymentService;
   paymentWebhookService?: PaymentWebhookService;
+  cancellationService?: CancellationService;
   documentService?: DocumentService;
   config?: EnvConfig;
 }
@@ -124,7 +128,21 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     });
   }
 
-  // 10. Register Payment Routes under /api/v1/payments (Phase 6)
+  // 10. Register Customer Cancellation Routes under /api/v1/bookings
+  if (options.cancellationService) {
+    await fastify.register(customerCancellationRoutes, {
+      prefix: '/bookings',
+      cancellationService: options.cancellationService,
+    });
+
+    // 11. Register Admin Cancellation Routes under /api/v1/admin/cancellations
+    await fastify.register(adminCancellationRoutes, {
+      prefix: '/admin/cancellations',
+      cancellationService: options.cancellationService,
+    });
+  }
+
+  // 12. Register Payment Routes under /api/v1/payments (Phase 6)
   if (options.paymentService) {
     await fastify.register(paymentRoutes, {
       prefix: '/payments',
@@ -132,7 +150,7 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     });
   }
 
-  // 11. Register Webhook Routes under /api/v1/webhooks (Phase 6 Step 6)
+  // 13. Register Webhook Routes under /api/v1/webhooks (Phase 6 Step 6)
   if (options.paymentWebhookService) {
     await fastify.register(webhookRoutes, {
       prefix: '/webhooks',
@@ -140,7 +158,7 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     });
   }
 
-  // 12. Register Document Routes under /api/v1/documents (Phase 6 Step 9)
+  // 14. Register Document Routes under /api/v1/documents (Phase 6 Step 9)
   if (options.documentService) {
     await fastify.register(documentRoutes, {
       prefix: '/documents',
@@ -148,7 +166,7 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     });
   }
 
-  // 13. Register Development Storage Serving Routes under /api/v1/storage (Phase 6 Step 9)
+  // 15. Register Development Storage Serving Routes under /api/v1/storage (Phase 6 Step 9)
   if (options.storage) {
     await fastify.register(localStorageRoutes, {
       prefix: '/storage',

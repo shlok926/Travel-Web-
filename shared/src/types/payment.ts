@@ -185,11 +185,52 @@ export interface CancellationRequestDTO {
 }
 
 /**
+ * CreateCancellationRequest: Client payload to request booking cancellation.
+ * Strictly accepts only user-provided reason (all financial fields and user IDs are server-derived).
+ */
+export interface CreateCancellationRequest {
+  reason: string;
+}
+
+/**
+ * RejectCancellationRequest: Admin payload to reject a cancellation request.
+ */
+export interface RejectCancellationRequest {
+  adminNotes?: string;
+}
+
+/**
  * AuthorizeCancellationRequest: Admin RBAC action payload to authorize refund settlement.
  */
 export interface AuthorizeCancellationRequest {
   adminNotes?: string;
   overrideRefundAmount?: number; // Minor units (optional admin override)
+}
+
+/**
+ * RefundGatewayPaymentRequest: Provider-neutral gateway refund input contract.
+ */
+export interface RefundGatewayPaymentRequest {
+  gatewayPaymentId?: string | null;
+  gatewayOrderId?: string | null;
+  amount: number; // Server-authoritative minor units
+  currency: SupportedCurrency;
+  reason?: string;
+  receipt?: string;
+  notes?: Record<string, string>;
+}
+
+/**
+ * RefundGatewayResult: Provider-neutral gateway refund output contract.
+ */
+export interface RefundGatewayResult {
+  provider: PaymentProvider;
+  gatewayRefundId: string;
+  gatewayPaymentId?: string | null;
+  amount: number; // Minor units
+  currency: SupportedCurrency;
+  status: RefundSettlementStatus;
+  rawPayload: Record<string, unknown>;
 }
 
 /**

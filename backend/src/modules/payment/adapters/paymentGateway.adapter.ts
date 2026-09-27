@@ -3,6 +3,8 @@ import {
   PaymentStatus,
   SupportedCurrency,
   NormalizedPaymentResult,
+  RefundGatewayPaymentRequest,
+  RefundGatewayResult,
 } from '../../../../../shared/src/index.js';
 
 // ============================================================
@@ -46,6 +48,9 @@ export interface GetPaymentStatusRequest {
   gatewayPaymentId?: string | null;
 }
 
+// Re-export shared refund types for adapter convenience
+export type { RefundGatewayPaymentRequest, RefundGatewayResult };
+
 // ============================================================
 // 2. Common Payment Gateway Adapter Interface
 // ============================================================
@@ -67,4 +72,9 @@ export interface PaymentGatewayAdapter {
    * Fetches latest payment/order status from provider API.
    */
   getPaymentStatus(request: GetPaymentStatusRequest): Promise<NormalizedPaymentResult>;
+
+  /**
+   * Initiates a refund through the payment gateway for an eligible captured payment.
+   */
+  refundPayment(request: RefundGatewayPaymentRequest): Promise<RefundGatewayResult>;
 }
