@@ -90,6 +90,8 @@ describe('Phase 5 Step 5 — Inventory Hold Integration & Pessimistic Concurrenc
   afterAll(async () => {
     if (db && isDbAvailable) {
       // Clean up test data in reverse foreign-key order
+      await db.query(`DELETE FROM refund_settlements;`);
+      await db.query(`DELETE FROM cancellation_requests;`);
       await db.query(`DELETE FROM tax_invoices;`);
       await db.query(`DELETE FROM ticket_vouchers;`);
       await db.query(`DELETE FROM payment_events;`);

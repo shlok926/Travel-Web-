@@ -334,5 +334,175 @@ describe('Phase 6 Step 10 — CancellationService (Unit)', () => {
       expect(result.booking.status).toBe('CANCELLED');
       expect(result.settlement.settlementStatus).toBe('SETTLED');
     });
+
+    it('should safely handle ambiguous gateway timeout by recording PROCESSING and transitioning request to AUTHORIZED', async () => {
+      const { AppError, ErrorCodes } = await import('../../shared/src/index.js');
+      cancellationRequestRepoMock.findById.mockResolvedValue({
+        id: 'cr-timeout-1',
+        bookingId: 'b-timeout-1',
+        status: 'PENDING_APPROVAL',
+        calculatedRefundAmount: 50000,
+        calculatedPenaltyAmount: 50000,
+        cancellationReason: 'Ambiguous test',
+      });
+      bookingRepoMock.findById.mockResolvedValue({
+        id: 'b-timeout-1',
+        departureId: 'dep-1',
+        partySize: 2,
+        status: 'CONFIRMED',
+      });
+      paymentTxRepoMock.findByBookingId.mockResolvedValue([
+        {
+          id: 'tx-timeout-1',
+          bookingId: 'b-timeout-1',
+          amount: 100000,
+          currency: 'INR',
+          status: 'SUCCESS',
+          provider: 'MOCK',
+          gatewayPaymentId: 'pay_mock_TIMEOUT_123',
+        },
+      ]);
+      refundSettlementRepoMock.findByCancellationRequestId.mockResolvedValue([]);
+
+      // Gateway throws network timeout (503)
+      gatewayAdapterMock.refundPayment.mockRejectedValue(
+        new AppError('Gateway timeout / connection failure', 503, ErrorCodes.SERVICE_UNAVAILABLE),
+      );
+
+      departureRepoMock.findByIdForUpdate.mockResolvedValue({
+        id: 'dep-1',
+        bookedSeats: 5,
+        totalSeatCapacity: 20,
+      });
+      cancellationRequestRepoMock.updateStatusGuarded.mockResolvedValue({
+        id: 'cr-timeout-1',
+        status: 'AUTHORIZED',
+        calculatedRefundAmount: 50000,
+      });
+      refundSettlementRepoMock.create.mockResolvedValue({
+        id: 'rs-timeout-1',
+        cancellationRequestId: 'cr-timeout-1',
+        gatewayRefundId: null,
+        settlementStatus: 'PROCESSING',
+      });
+      bookingRepoMock.updateStatusGuarded.mockResolvedValue({
+        id: 'b-timeout-1',
+        status: 'CANCELLED',
+      });
+      departureRepoMock.decrementBookedSeats.mockResolvedValue({
+        id: 'dep-1',
+        bookedSeats: 3,
+      });
+      paymentTxRepoMock.updateStatusGuarded.mockResolvedValue({
+        id: 'tx-timeout-1',
+        status: 'REFUNDED',
+      });
+
+      const result = await cancellationService.authorizeCancellation({
+        cancellationId: 'cr-timeout-1',
+        adminId: 'admin-1',
+      });
+
+      // Assertions: Ambiguous timeout does NOT crash, records PROCESSING, and AUTHORIZES cancellation
+      expect(result.cancellation.status).toBe('AUTHORIZED');
+      expect(result.settlement.settlementStatus).toBe('PROCESSING');
+      expect(result.booking.status).toBe('CANCELLED');
+      expect(cancellationRequestRepoMock.updateStatusGuarded).toHaveBeenCalledWith(
+        'cr-timeout-1',
+        'PENDING_APPROVAL',
+        'AUTHORIZED',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(refundSettlementRepoMock.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settlementStatus: 'PROCESSING',
+          gatewayRefundId: null,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('should handle explicit gateway rejection by recording FAILED and keeping booking CONFIRMED', async () => {
+      const { AppError, ErrorCodes } = await import('../../shared/src/index.js');
+      cancellationRequestRepoMock.findById.mockResolvedValue({
+        id: 'cr-reject-1',
+        bookingId: 'b-reject-1',
+        status: 'PENDING_APPROVAL',
+        calculatedRefundAmount: 50000,
+        cancellationReason: 'Rejection test',
+      });
+      bookingRepoMock.findById.mockResolvedValue({
+        id: 'b-reject-1',
+        departureId: 'dep-1',
+        partySize: 2,
+        status: 'CONFIRMED',
+      });
+      paymentTxRepoMock.findByBookingId.mockResolvedValue([
+        {
+          id: 'tx-reject-1',
+          bookingId: 'b-reject-1',
+          amount: 100000,
+          currency: 'INR',
+          status: 'SUCCESS',
+          provider: 'MOCK',
+          gatewayPaymentId: 'pay_mock_FAIL_REFUND_123',
+        },
+      ]);
+      refundSettlementRepoMock.findByCancellationRequestId.mockResolvedValue([]);
+
+      gatewayAdapterMock.refundPayment.mockRejectedValue(
+        new AppError('Gateway card refund rejected', 400, ErrorCodes.REFUND_FAILED),
+      );
+
+      await expect(
+        cancellationService.authorizeCancellation({
+          cancellationId: 'cr-reject-1',
+          adminId: 'admin-1',
+        }),
+      ).rejects.toThrow('Gateway card refund rejected');
+
+      // Verify FAILED record was created
+      expect(refundSettlementRepoMock.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settlementStatus: 'FAILED',
+        }),
+      );
+      // Verify DB transaction was NOT run to mutate booking or decrement seats
+      expect(departureRepoMock.decrementBookedSeats).not.toHaveBeenCalled();
+      expect(bookingRepoMock.updateStatusGuarded).not.toHaveBeenCalled();
+    });
+
+    it('should reject authorization when a PROCESSING settlement is already in-flight', async () => {
+      cancellationRequestRepoMock.findById.mockResolvedValue({
+        id: 'cr-inflight-1',
+        bookingId: 'b-inflight-1',
+        status: 'PENDING_APPROVAL',
+        calculatedRefundAmount: 50000,
+      });
+      bookingRepoMock.findById.mockResolvedValue({
+        id: 'b-inflight-1',
+        status: 'CONFIRMED',
+      });
+      paymentTxRepoMock.findByBookingId.mockResolvedValue([
+        {
+          id: 'tx-1',
+          amount: 100000,
+          status: 'SUCCESS',
+        },
+      ]);
+      refundSettlementRepoMock.findByCancellationRequestId.mockResolvedValue([
+        { id: 'rs-1', settlementStatus: 'PROCESSING' },
+      ]);
+
+      await expect(
+        cancellationService.authorizeCancellation({
+          cancellationId: 'cr-inflight-1',
+          adminId: 'admin-1',
+        }),
+      ).rejects.toThrow(
+        'A refund settlement is already in-flight or processing for this cancellation request',
+      );
+    });
   });
 });

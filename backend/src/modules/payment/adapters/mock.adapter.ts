@@ -9,6 +9,7 @@ import {
 } from './paymentGateway.adapter.js';
 import {
   PaymentProvider,
+  RefundSettlementStatus,
   NormalizedPaymentResult,
   AppError,
   ErrorCodes,
@@ -140,9 +141,34 @@ export class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
       );
     }
 
-    // Controlled failure simulation
-    const identifier = request.gatewayPaymentId ?? request.gatewayOrderId ?? '';
-    if (identifier.includes('FAIL_REFUND') || request.notes?.forceFail === 'true') {
+    // Controlled failure & ambiguity simulations
+    const identifier = `${request.gatewayPaymentId ?? ''}_${request.gatewayOrderId ?? ''}_${request.receipt ?? ''}`;
+
+    if (
+      identifier.includes('TIMEOUT') ||
+      identifier.includes('AMBIGUOUS') ||
+      request.notes?.simulateTimeout === 'true'
+    ) {
+      throw new AppError(
+        'Payment gateway temporarily unreachable / timeout during refund processing',
+        503,
+        ErrorCodes.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    if (identifier.includes('FAIL_PROVIDER') || request.notes?.simulateProviderError === 'true') {
+      throw new AppError(
+        'Payment gateway internal provider failure',
+        500,
+        ErrorCodes.PAYMENT_PROVIDER_ERROR,
+      );
+    }
+
+    if (
+      identifier.includes('FAIL_REFUND') ||
+      identifier.includes('REJECT') ||
+      request.notes?.forceFail === 'true'
+    ) {
       throw new AppError(
         'Mock payment gateway simulated refund failure',
         400,
@@ -151,9 +177,18 @@ export class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
     }
 
     const refundSuffix = request.receipt
-      ? request.receipt.slice(-8)
-      : Math.random().toString(36).slice(2, 8).toUpperCase();
+      ? request.receipt.replace(/^rfnd_/, '')
+      : request.gatewayPaymentId
+        ? request.gatewayPaymentId.slice(-8)
+        : 'default';
     const gatewayRefundId = `rfnd_mock_${refundSuffix}`;
+
+    const status: RefundSettlementStatus =
+      identifier.includes('PROCESSING') ||
+      identifier.includes('PENDING') ||
+      request.notes?.simulateProcessing === 'true'
+        ? 'PROCESSING'
+        : 'SETTLED';
 
     return {
       provider: this.provider,
@@ -161,13 +196,13 @@ export class MockPaymentGatewayAdapter implements PaymentGatewayAdapter {
       gatewayPaymentId: request.gatewayPaymentId ?? null,
       amount: request.amount,
       currency: request.currency,
-      status: 'SETTLED',
+      status,
       rawPayload: {
         id: gatewayRefundId,
         payment_id: request.gatewayPaymentId,
         amount: request.amount,
         currency: request.currency,
-        status: 'processed',
+        status: status === 'SETTLED' ? 'processed' : 'pending',
         created_at: Math.floor(Date.now() / 1000),
       },
     };

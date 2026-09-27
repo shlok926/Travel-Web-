@@ -104,7 +104,7 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
           packageId: pkgId,
           departureDate: date40Str,
           returnDate: return40Str,
-          totalSeatCapacity: 20,
+          totalSeatCapacity: 100,
         });
         depId40Days = dep40.id;
 
@@ -118,7 +118,7 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
           packageId: pkgId,
           departureDate: date20Str,
           returnDate: return20Str,
-          totalSeatCapacity: 20,
+          totalSeatCapacity: 100,
         });
         depId20Days = dep20.id;
 
@@ -132,7 +132,7 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
           packageId: pkgId,
           departureDate: date5Str,
           returnDate: return5Str,
-          totalSeatCapacity: 20,
+          totalSeatCapacity: 100,
         });
         depId5Days = dep5.id;
       }
@@ -151,6 +151,7 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
     departureId: string,
     amount: number = 100000,
     partySize: number = 2,
+    customGatewayPaymentId?: string,
   ) {
     const bookingRef = `BK-CNCL-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const dep = await departureRepo.findById(departureId);
@@ -183,12 +184,13 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
     );
 
     // Create successful payment transaction
+    const gatewayPaymentId = customGatewayPaymentId ?? `pay_mock_${bookingRef}`;
 
     const payment = await paymentTxRepo.create({
       bookingId,
       provider: 'MOCK',
       gatewayOrderId: `order_mock_${bookingRef}`,
-      gatewayPaymentId: `pay_mock_${bookingRef}`,
+      gatewayPaymentId,
       amount,
       currency: 'INR',
       status: 'SUCCESS',
@@ -639,6 +641,173 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
 
       const payment = await paymentTxRepo.findById(paymentId);
       expect(payment!.status).toBe('REFUNDED');
+    });
+
+    it('should safely handle ambiguous gateway timeout: record PROCESSING, transition to AUTHORIZED, release seats once, and prevent double refund on retry', async () => {
+      if (!isDbAvailable) return;
+
+      const bookingRef = `BK-TIMEOUT-${Date.now()}`;
+      const dep = await departureRepo.findById(depId40Days);
+      const bookedSeatsBefore = dep!.bookedSeats;
+
+      const bookingRes = await db.query<{ id: string }>(
+        `INSERT INTO bookings (
+          booking_reference, customer_id, departure_id, status, party_size, adult_count, child_count,
+          total_price, currency, price_breakdown, package_snapshot, departure_snapshot, itinerary_snapshot,
+          primary_contact_name, primary_contact_email, primary_contact_phone, confirmed_at
+        ) VALUES (
+          $1, $2, $3, 'CONFIRMED', 2, 2, 0,
+          100000, 'INR', '{"basePrice": 100000}', '{"title": "Goa Tour"}', $4, '{"days": []}',
+          'Alice Cancel Owner', 'alice@example.com', '+919876543210', NOW()
+        ) RETURNING id;`,
+        [
+          bookingRef,
+          customer1Id,
+          depId40Days,
+          JSON.stringify({ departureDate: dep!.departureDate, returnDate: dep!.returnDate }),
+        ],
+      );
+      const bookingId = bookingRes.rows[0]!.id;
+
+      await db.query(
+        `UPDATE departure_schedules SET booked_seats = booked_seats + 2 WHERE id = $1;`,
+        [depId40Days],
+      );
+
+      // Payment with TIMEOUT simulator in payment ID
+      const payment = await paymentTxRepo.create({
+        bookingId,
+        provider: 'MOCK',
+        gatewayOrderId: `order_mock_${bookingRef}`,
+        gatewayPaymentId: `pay_mock_TIMEOUT_${bookingRef}`,
+        amount: 100000,
+        currency: 'INR',
+        status: 'SUCCESS',
+        idempotencyKey: `idem_pay_timeout_${bookingRef}`,
+      });
+
+      const reqRes = await app.inject({
+        method: 'POST',
+        url: `/api/v1/bookings/${bookingRef}/cancellation`,
+        headers: { authorization: `Bearer ${customer1Token}` },
+        payload: { reason: 'Ambiguous timeout test' },
+      });
+      const cancellationId = reqRes.json().data.id;
+
+      // Authorize during gateway timeout
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/cancellations/${cancellationId}/authorize`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { adminNotes: 'Authorize during timeout' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.success).toBe(true);
+      expect(body.data.cancellation.status).toBe('AUTHORIZED');
+      expect(body.data.settlement.settlementStatus).toBe('PROCESSING');
+      expect(body.data.bookingStatus).toBe('CANCELLED');
+
+      // Verify DB states: Booking CANCELLED, Payment REFUNDED, Seats released once
+      const booking = await bookingRepo.findById(bookingId);
+      expect(booking!.status).toBe('CANCELLED');
+
+      const paymentInDb = await paymentTxRepo.findById(payment.id);
+      expect(paymentInDb!.status).toBe('REFUNDED');
+
+      const depAfter = await departureRepo.findById(depId40Days);
+      expect(depAfter!.bookedSeats).toBe(bookedSeatsBefore); // incremented by 2, then decremented by 2
+
+      // Verify settlement recorded PROCESSING
+      const settlements = await refundSettlementRepo.findByCancellationRequestId(cancellationId);
+      expect(settlements.length).toBe(1);
+      expect(settlements[0]!.settlementStatus).toBe('PROCESSING');
+
+      // Critical Check: Repeated authorization while PROCESSING must be rejected with 400 (NO duplicate refund)
+      const retryRes = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/cancellations/${cancellationId}/authorize`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(retryRes.statusCode).toBe(400);
+      expect(retryRes.json().error.code).toBe('REFUND_INVALID_STATE');
+    });
+
+    it('should handle explicit gateway rejection: record FAILED audit, keep booking CONFIRMED, and preserve seats', async () => {
+      if (!isDbAvailable) return;
+
+      const bookingRef = `BK-REJECT-${Date.now()}`;
+      const dep = await departureRepo.findById(depId40Days);
+      const bookedSeatsBefore = dep!.bookedSeats;
+
+      const bookingRes = await db.query<{ id: string }>(
+        `INSERT INTO bookings (
+          booking_reference, customer_id, departure_id, status, party_size, adult_count, child_count,
+          total_price, currency, price_breakdown, package_snapshot, departure_snapshot, itinerary_snapshot,
+          primary_contact_name, primary_contact_email, primary_contact_phone, confirmed_at
+        ) VALUES (
+          $1, $2, $3, 'CONFIRMED', 2, 2, 0,
+          100000, 'INR', '{"basePrice": 100000}', '{"title": "Goa Tour"}', $4, '{"days": []}',
+          'Alice Cancel Owner', 'alice@example.com', '+919876543210', NOW()
+        ) RETURNING id;`,
+        [
+          bookingRef,
+          customer1Id,
+          depId40Days,
+          JSON.stringify({ departureDate: dep!.departureDate, returnDate: dep!.returnDate }),
+        ],
+      );
+      const bookingId = bookingRes.rows[0]!.id;
+
+      await db.query(
+        `UPDATE departure_schedules SET booked_seats = booked_seats + 2 WHERE id = $1;`,
+        [depId40Days],
+      );
+
+      // Payment with FAIL_REFUND simulator
+      const payment = await paymentTxRepo.create({
+        bookingId,
+        provider: 'MOCK',
+        gatewayOrderId: `order_mock_${bookingRef}`,
+        gatewayPaymentId: `pay_mock_FAIL_REFUND_${bookingRef}`,
+        amount: 100000,
+        currency: 'INR',
+        status: 'SUCCESS',
+        idempotencyKey: `idem_pay_fail_${bookingRef}`,
+      });
+
+      const reqRes = await app.inject({
+        method: 'POST',
+        url: `/api/v1/bookings/${bookingRef}/cancellation`,
+        headers: { authorization: `Bearer ${customer1Token}` },
+        payload: { reason: 'Rejection test' },
+      });
+      const cancellationId = reqRes.json().data.id;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/cancellations/${cancellationId}/authorize`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('REFUND_FAILED');
+
+      // Verify DB: Booking remains CONFIRMED, Seats NOT decremented, Payment remains SUCCESS
+      const booking = await bookingRepo.findById(bookingId);
+      expect(booking!.status).toBe('CONFIRMED');
+
+      const paymentInDb = await paymentTxRepo.findById(payment.id);
+      expect(paymentInDb!.status).toBe('SUCCESS');
+
+      const depAfter = await departureRepo.findById(depId40Days);
+      expect(depAfter!.bookedSeats).toBe(bookedSeatsBefore + 2);
+
+      // Verify FAILED settlement audit was recorded
+      const settlements = await refundSettlementRepo.findByCancellationRequestId(cancellationId);
+      expect(settlements.length).toBe(1);
+      expect(settlements[0]!.settlementStatus).toBe('FAILED');
     });
   });
 });

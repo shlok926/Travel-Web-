@@ -342,15 +342,38 @@ export class CancellationService {
 
     const penaltyAmount = successTx.amount - refundAmount;
 
+    // Check for existing in-flight or settled refund records to prevent duplicate gateway execution
+    const existingSettlements =
+      (await this.refundSettlementRepo.findByCancellationRequestId(request.id)) ?? [];
+    const existingSettled = existingSettlements.find((s) => s.settlementStatus === 'SETTLED');
+    if (existingSettled) {
+      throw AppError.badRequest(
+        'A settled refund already exists for this cancellation request',
+        [],
+        ErrorCodes.REFUND_INVALID_STATE,
+      );
+    }
+    const inFlightSettlement = existingSettlements.find((s) => s.settlementStatus === 'PROCESSING');
+    if (inFlightSettlement) {
+      throw AppError.conflict(
+        'A refund settlement is already in-flight or processing for this cancellation request',
+        ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
+      );
+    }
+
     // 5. Payment Gateway Refund Execution
+    const receiptKey = `rfnd_${request.id.replace(/-/g, '').slice(0, 32)}`;
     let gatewayRefundId: string | null = null;
     let settlementStatus: RefundSettlementStatus = 'SETTLED';
     let gatewayRawPayload: Record<string, unknown> = {};
+    let settlementErrorMessage: string | null = null;
+    let targetCancellationStatus: 'COMPLETED' | 'AUTHORIZED' = 'COMPLETED';
 
     if (refundAmount === 0) {
       // 100% penalty / zero refund: no external gateway API call needed
       gatewayRefundId = `zero_refund_${request.id.slice(-8)}`;
       settlementStatus = 'SETTLED';
+      targetCancellationStatus = 'COMPLETED';
       gatewayRawPayload = { note: '100% cancellation fee applied; zero gateway refund initiated' };
     } else {
       const adapter = this.gatewayFactory.getAdapter(successTx.provider);
@@ -362,15 +385,21 @@ export class CancellationService {
           amount: refundAmount,
           currency: successTx.currency,
           reason: request.cancellationReason,
-          receipt: `rfnd_${request.id.slice(-8)}`,
+          receipt: receiptKey,
         });
 
         gatewayRefundId = refundResult.gatewayRefundId;
         settlementStatus = refundResult.status;
         gatewayRawPayload = refundResult.rawPayload;
 
-        if (settlementStatus === 'FAILED') {
-          // Record failed settlement attempt for audit
+        if (settlementStatus === 'SETTLED') {
+          targetCancellationStatus = 'COMPLETED';
+        } else if (settlementStatus === 'PROCESSING') {
+          targetCancellationStatus = 'AUTHORIZED';
+          settlementErrorMessage =
+            'Refund initiated with provider; asynchronous settlement in progress';
+        } else if (settlementStatus === 'FAILED') {
+          // Explicit definitive rejection from provider
           await this.refundSettlementRepo.create({
             cancellationRequestId: request.id,
             paymentTransactionId: successTx.id,
@@ -384,36 +413,63 @@ export class CancellationService {
           throw AppError.badRequest('Payment gateway refund failed', [], ErrorCodes.REFUND_FAILED);
         }
       } catch (err: unknown) {
-        if (err instanceof AppError) {
-          // If we already persisted or it's a domain AppError
-          throw err;
-        }
-
         const errorMessage =
           err && typeof err === 'object' && 'message' in err
             ? String((err as { message: unknown }).message)
-            : 'Unknown gateway refund failure';
+            : 'Gateway refund failure';
 
-        // Record failed settlement audit attempt
-        try {
-          await this.refundSettlementRepo.create({
-            cancellationRequestId: request.id,
-            paymentTransactionId: successTx.id,
-            gatewayRefundId: null,
-            refundAmount,
-            currency: successTx.currency,
-            settlementStatus: 'FAILED',
-            errorMessage,
-          });
-        } catch {
-          // Non-blocking log persistence
+        const errorCode =
+          err instanceof AppError
+            ? err.code
+            : err && typeof err === 'object' && 'code' in err
+              ? String((err as { code: unknown }).code)
+              : '';
+
+        const isAmbiguousTimeout =
+          (err instanceof AppError && err.statusCode === 503) ||
+          errorCode === ErrorCodes.SERVICE_UNAVAILABLE ||
+          errorMessage.toLowerCase().includes('timeout') ||
+          errorMessage.toLowerCase().includes('unreachable') ||
+          errorMessage.toLowerCase().includes('network') ||
+          errorMessage.toLowerCase().includes('connection') ||
+          errorMessage.toLowerCase().includes('econnreset') ||
+          errorMessage.toLowerCase().includes('etimedout');
+
+        if (isAmbiguousTimeout) {
+          // Ambiguous gateway outcome: We do NOT know if provider processed refund.
+          // CRITICAL: Do NOT mark as FAILED (prevents duplicate refund on unsafe retry).
+          // Safely record as PROCESSING and transition request to AUTHORIZED.
+          settlementStatus = 'PROCESSING';
+          targetCancellationStatus = 'AUTHORIZED';
+          settlementErrorMessage = `Gateway timeout / network failure: ${errorMessage} (pending reconciliation)`;
+          gatewayRefundId = null;
+          gatewayRawPayload = { ambiguousError: errorMessage, receipt: receiptKey };
+        } else {
+          // Definitive provider rejection or validation error: record FAILED audit and do NOT mutate booking
+          try {
+            await this.refundSettlementRepo.create({
+              cancellationRequestId: request.id,
+              paymentTransactionId: successTx.id,
+              gatewayRefundId: null,
+              refundAmount,
+              currency: successTx.currency,
+              settlementStatus: 'FAILED',
+              errorMessage,
+            });
+          } catch {
+            // Non-blocking log persistence
+          }
+
+          if (err instanceof AppError) {
+            throw err;
+          }
+
+          throw AppError.badRequest(
+            `Payment gateway refund failed: ${errorMessage}`,
+            [],
+            ErrorCodes.REFUND_FAILED,
+          );
         }
-
-        throw AppError.badRequest(
-          `Payment gateway refund failed: ${errorMessage}`,
-          [],
-          ErrorCodes.REFUND_FAILED,
-        );
       }
     }
 
@@ -437,11 +493,11 @@ export class CancellationService {
         );
       }
 
-      // 6.3 Atomically transition cancellation request: PENDING_APPROVAL -> COMPLETED
-      const completedRequest = await this.cancellationRequestRepo.updateStatusGuarded(
+      // 6.3 Atomically transition cancellation request: PENDING_APPROVAL -> (COMPLETED | AUTHORIZED)
+      const updatedRequest = await this.cancellationRequestRepo.updateStatusGuarded(
         request.id,
         'PENDING_APPROVAL',
-        'COMPLETED',
+        targetCancellationStatus,
         {
           adminNotes: adminNotes ?? request.adminNotes,
           authorizedBy: adminId,
@@ -452,7 +508,7 @@ export class CancellationService {
         client,
       );
 
-      if (!completedRequest) {
+      if (!updatedRequest) {
         throw AppError.conflict(
           'Cancellation request was concurrently modified or authorized',
           ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
@@ -468,7 +524,8 @@ export class CancellationService {
           refundAmount,
           currency: successTx.currency,
           settlementStatus,
-          processedAt: new Date(),
+          errorMessage: settlementErrorMessage,
+          processedAt: settlementStatus === 'SETTLED' ? new Date() : null,
         },
         client,
       );
@@ -525,7 +582,7 @@ export class CancellationService {
       }
 
       return {
-        cancellation: completedRequest,
+        cancellation: updatedRequest,
         settlement,
         booking: cancelledBooking,
         payment: updatedPayment,

@@ -54,6 +54,58 @@ describe('Phase 6 Step 10 — Payment Gateway Refund Adapters (Unit)', () => {
         }),
       ).rejects.toThrow('Refund amount cannot be negative');
     });
+
+    it('should simulate ambiguous timeout when identifier contains TIMEOUT', async () => {
+      await expect(
+        adapter.refundPayment({
+          gatewayPaymentId: 'pay_mock_TIMEOUT_999',
+          amount: 50000,
+          currency: 'INR',
+        }),
+      ).rejects.toThrow(
+        'Payment gateway temporarily unreachable / timeout during refund processing',
+      );
+    });
+
+    it('should simulate internal provider error when identifier contains FAIL_PROVIDER', async () => {
+      await expect(
+        adapter.refundPayment({
+          gatewayPaymentId: 'pay_mock_FAIL_PROVIDER_999',
+          amount: 50000,
+          currency: 'INR',
+        }),
+      ).rejects.toThrow('Payment gateway internal provider failure');
+    });
+
+    it('should return PROCESSING status when identifier contains PROCESSING', async () => {
+      const result = await adapter.refundPayment({
+        gatewayPaymentId: 'pay_mock_PROCESSING_999',
+        amount: 50000,
+        currency: 'INR',
+        receipt: 'rfnd_async_123',
+      });
+
+      expect(result.status).toBe('PROCESSING');
+      expect(result.gatewayRefundId).toBe('rfnd_mock_async_123');
+    });
+
+    it('should produce deterministic gatewayRefundId when identical receipt is provided (Idempotency)', async () => {
+      const res1 = await adapter.refundPayment({
+        gatewayPaymentId: 'pay_mock_12345',
+        amount: 50000,
+        currency: 'INR',
+        receipt: 'rfnd_stable_idempotency_1',
+      });
+
+      const res2 = await adapter.refundPayment({
+        gatewayPaymentId: 'pay_mock_12345',
+        amount: 50000,
+        currency: 'INR',
+        receipt: 'rfnd_stable_idempotency_1',
+      });
+
+      expect(res1.gatewayRefundId).toBe(res2.gatewayRefundId);
+    });
   });
 
   describe('Razorpay Payment Gateway Refund', () => {

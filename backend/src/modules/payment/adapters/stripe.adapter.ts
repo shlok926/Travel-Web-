@@ -222,7 +222,11 @@ export class StripePaymentGatewayAdapter implements PaymentGatewayAdapter {
         refundParams.charge = request.gatewayPaymentId;
       }
 
-      const refund = await stripe.refunds.create(refundParams);
+      const idempotencyKey = request.receipt
+        ? `rfnd_stripe_${request.receipt}`
+        : `rfnd_stripe_${request.gatewayOrderId ?? request.gatewayPaymentId}`;
+
+      const refund = await stripe.refunds.create(refundParams, { idempotencyKey });
       const status = this.mapStripeRefundStatus(refund.status);
 
       const chargeId =
