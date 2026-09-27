@@ -32,6 +32,7 @@ import {
   webhookRoutes,
 } from '../modules/payment/index.js';
 import { DocumentService, documentRoutes } from '../modules/document/index.js';
+import { localStorageRoutes } from './localStorage.routes.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -144,6 +145,15 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(documentRoutes, {
       prefix: '/documents',
       documentService: options.documentService,
+    });
+  }
+
+  // 13. Register Development Storage Serving Routes under /api/v1/storage (Phase 6 Step 9)
+  if (options.storage) {
+    await fastify.register(localStorageRoutes, {
+      prefix: '/storage',
+      storage: options.storage,
+      config: options.config,
     });
   }
 };

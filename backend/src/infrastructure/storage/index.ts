@@ -15,6 +15,7 @@ export class StorageFactory {
     return new LocalStorageService(
       config.STORAGE_LOCAL_PATH,
       config.CORS_ORIGIN || 'http://localhost:3000',
+      config.COOKIE_SECRET,
     );
   }
 }

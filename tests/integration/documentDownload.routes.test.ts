@@ -142,6 +142,17 @@ describe('Phase 6 Step 9 — Document Download Authorization & Presigned URLs (R
           bookingId: confirmedBookingId1,
           pdfStorageKey: `documents/vouchers/${confirmedBookingId1}/voucher.pdf`,
         });
+        const storage = appInstance.storage;
+        await storage.upload(Buffer.from('%PDF-1.4 Mock Invoice Content'), {
+          bucket: 'travel-documents-private',
+          key: `documents/invoices/${confirmedBookingId1}/invoice.pdf`,
+          contentType: 'application/pdf',
+        });
+        await storage.upload(Buffer.from('%PDF-1.4 Mock Voucher Content'), {
+          bucket: 'travel-documents-private',
+          key: `documents/vouchers/${confirmedBookingId1}/voucher.pdf`,
+          contentType: 'application/pdf',
+        });
 
         // 5. Provision a pending booking for Customer 1 without documents
         const ref2 = `BK-DOC-${Date.now().toString().slice(-6)}-2`;
@@ -438,6 +449,102 @@ describe('Phase 6 Step 9 — Document Download Authorization & Presigned URLs (R
       const body = JSON.parse(res.payload);
       expect(body.data.bookingReference).toBe(confirmedBookingRef1);
       expect(body.data.downloadUrl).not.toContain('evil/path.pdf');
+    });
+  });
+
+  describe('4. Local Storage Signed URL Serving & Expiration Enforcement', () => {
+    it('A. should successfully serve the document file using a valid, active signed URL', async () => {
+      if (!isDbAvailable) return;
+
+      // 1. Obtain signed URL as customer 1
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/documents/invoice/${confirmedBookingRef1}/download`,
+        headers: {
+          authorization: `Bearer ${customer1Token}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      const downloadUrl = body.data.downloadUrl;
+      expect(downloadUrl).toContain('/api/v1/storage/');
+
+      const parsedUrl = new URL(downloadUrl);
+      const storagePath = `${parsedUrl.pathname}${parsedUrl.search}`;
+
+      // 2. Fetch the file using the signed storage path
+      const fileRes = await app.inject({
+        method: 'GET',
+        url: storagePath,
+      });
+
+      expect(fileRes.statusCode).toBe(200);
+      expect(fileRes.headers['content-type']).toContain('application/pdf');
+      expect(fileRes.payload).toContain('%PDF-1.4 Mock Invoice Content');
+    });
+
+    it('B. should reject access with 403 when download URL has expired', async () => {
+      if (!isDbAvailable) return;
+
+      const pastTimestamp = Math.floor(Date.now() / 1000) - 100;
+      const invalidExpiredPath = `/api/v1/storage/travel-documents-private/documents/invoices/${confirmedBookingId1}/invoice.pdf?expires=${pastTimestamp}&signature=mocksignature`;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: invalidExpiredPath,
+      });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error?.code).toBe('ACCESS_FORBIDDEN');
+    });
+
+    it('C. should reject access with 403 when signature is tampered or invalid', async () => {
+      if (!isDbAvailable) return;
+
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 900;
+      const tamperedPath = `/api/v1/storage/travel-documents-private/documents/invoices/${confirmedBookingId1}/invoice.pdf?expires=${futureTimestamp}&signature=deadbeef_forged_signature`;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: tamperedPath,
+      });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error?.code).toBe('ACCESS_FORBIDDEN');
+    });
+
+    it('D. should reject access with 403 when expires or signature parameters are missing', async () => {
+      if (!isDbAvailable) return;
+
+      const unsignedPath = `/api/v1/storage/travel-documents-private/documents/invoices/${confirmedBookingId1}/invoice.pdf`;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: unsignedPath,
+      });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error?.code).toBe('ACCESS_FORBIDDEN');
+    });
+
+    it('E. should reject path traversal attempts through storage endpoint', async () => {
+      if (!isDbAvailable) return;
+
+      const traversalPath = `/api/v1/storage/travel-documents-private/..%2F..%2Fetc%2Fpasswd?expires=9999999999&signature=invalidsig`;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: traversalPath,
+      });
+
+      expect(res.statusCode).toBe(403);
     });
   });
 });
