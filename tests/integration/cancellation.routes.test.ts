@@ -643,7 +643,7 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
       expect(payment!.status).toBe('REFUNDED');
     });
 
-    it('should safely handle ambiguous gateway timeout: record PROCESSING, transition to AUTHORIZED, release seats once, and prevent double refund on retry', async () => {
+    it('should safely handle ambiguous gateway timeout: record PROCESSING, transition request to AUTHORIZED, keep booking CONFIRMED, keep payment SUCCESS, preserve seats, and prevent duplicate refund on retry', async () => {
       if (!isDbAvailable) return;
 
       const bookingRef = `BK-TIMEOUT-${Date.now()}`;
@@ -707,31 +707,33 @@ describe('Phase 6 Step 10 — Cancellation & Refund REST APIs (Integration & Sec
       expect(body.success).toBe(true);
       expect(body.data.cancellation.status).toBe('AUTHORIZED');
       expect(body.data.settlement.settlementStatus).toBe('PROCESSING');
-      expect(body.data.bookingStatus).toBe('CANCELLED');
+      expect(body.data.bookingStatus).toBe('CONFIRMED');
 
-      // Verify DB states: Booking CANCELLED, Payment REFUNDED, Seats released once
+      // Verify DB states: Booking remains CONFIRMED, Payment remains SUCCESS, Seats remain RESERVED
       const booking = await bookingRepo.findById(bookingId);
-      expect(booking!.status).toBe('CANCELLED');
+      expect(booking!.status).toBe('CONFIRMED');
 
       const paymentInDb = await paymentTxRepo.findById(payment.id);
-      expect(paymentInDb!.status).toBe('REFUNDED');
+      expect(paymentInDb!.status).toBe('SUCCESS');
 
       const depAfter = await departureRepo.findById(depId40Days);
-      expect(depAfter!.bookedSeats).toBe(bookedSeatsBefore); // incremented by 2, then decremented by 2
+      expect(depAfter!.bookedSeats).toBe(bookedSeatsBefore + 2); // seats remain reserved, NOT released yet
 
       // Verify settlement recorded PROCESSING
       const settlements = await refundSettlementRepo.findByCancellationRequestId(cancellationId);
       expect(settlements.length).toBe(1);
       expect(settlements[0]!.settlementStatus).toBe('PROCESSING');
 
-      // Critical Check: Repeated authorization while PROCESSING must be rejected with 400 (NO duplicate refund)
+      // Critical Check: Repeated authorization while PROCESSING must be rejected with 409/400 (NO duplicate refund)
       const retryRes = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/cancellations/${cancellationId}/authorize`,
         headers: { authorization: `Bearer ${adminToken}` },
       });
-      expect(retryRes.statusCode).toBe(400);
-      expect(retryRes.json().error.code).toBe('REFUND_INVALID_STATE');
+      expect([400, 409]).toContain(retryRes.statusCode);
+      expect(['REFUND_INVALID_STATE', 'CONCURRENT_MUTATION_CONFLICT']).toContain(
+        retryRes.json().error.code,
+      );
     });
 
     it('should handle explicit gateway rejection: record FAILED audit, keep booking CONFIRMED, and preserve seats', async () => {

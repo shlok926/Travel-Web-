@@ -530,53 +530,68 @@ export class CancellationService {
         client,
       );
 
-      // 6.5 Atomically transition booking: CONFIRMED -> CANCELLED
-      const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
-        booking.id,
-        'CONFIRMED',
-        'CANCELLED',
-        {
-          cancellationReason: request.cancellationReason,
-          cancelledAt: new Date(),
-        },
-        client,
-      );
-
-      if (!cancelledBooking) {
-        throw AppError.conflict(
-          'Booking was concurrently modified',
-          ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
+      if (settlementStatus === 'SETTLED') {
+        // 6.5 For confirmed SETTLED refund: Atomically transition booking: CONFIRMED -> CANCELLED
+        const cancelledBooking = await this.bookingRepo.updateStatusGuarded(
+          booking.id,
+          'CONFIRMED',
+          'CANCELLED',
+          {
+            cancellationReason: request.cancellationReason,
+            cancelledAt: new Date(),
+          },
+          client,
         );
+
+        if (!cancelledBooking) {
+          throw AppError.conflict(
+            'Booking was concurrently modified',
+            ErrorCodes.CONCURRENT_MUTATION_CONFLICT,
+          );
+        }
+
+        // 6.6 Single guarded decrement on booked seats
+        const updatedDeparture = await this.departureRepo.decrementBookedSeats(
+          booking.departureId,
+          booking.partySize,
+          client,
+        );
+
+        if (!updatedDeparture) {
+          throw AppError.badRequest(
+            'Failed to decrement booked seats: insufficient booked seats on departure schedule',
+            [
+              {
+                field: 'bookedSeats',
+                issue: 'Insufficient booked seats to satisfy cancellation decrement',
+              },
+            ],
+            ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
+          );
+        }
+
+        // 6.7 Atomically transition payment transaction: SUCCESS -> REFUNDED
+        const updatedPayment = await this.paymentTxRepo.updateStatusGuarded(
+          successTx.id,
+          'SUCCESS',
+          'REFUNDED',
+          client,
+        );
+
+        if (Object.keys(gatewayRawPayload).length > 0) {
+          await this.paymentTxRepo.updateGatewayPayload(successTx.id, gatewayRawPayload, client);
+        }
+
+        return {
+          cancellation: updatedRequest,
+          settlement,
+          booking: cancelledBooking,
+          payment: updatedPayment,
+        };
       }
 
-      // 6.6 Single guarded decrement on booked seats
-      const updatedDeparture = await this.departureRepo.decrementBookedSeats(
-        booking.departureId,
-        booking.partySize,
-        client,
-      );
-
-      if (!updatedDeparture) {
-        throw AppError.badRequest(
-          'Failed to decrement booked seats: insufficient booked seats on departure schedule',
-          [
-            {
-              field: 'bookedSeats',
-              issue: 'Insufficient booked seats to satisfy cancellation decrement',
-            },
-          ],
-          ErrorCodes.INVENTORY_CAPACITY_EXCEEDED,
-        );
-      }
-
-      // 6.7 Atomically transition payment transaction: SUCCESS -> REFUNDED
-      const updatedPayment = await this.paymentTxRepo.updateStatusGuarded(
-        successTx.id,
-        'SUCCESS',
-        'REFUNDED',
-        client,
-      );
-
+      // Ambiguous / PROCESSING state:
+      // Refund is in-flight/unresolved. Booking remains CONFIRMED, seats remain reserved, payment remains SUCCESS.
       if (Object.keys(gatewayRawPayload).length > 0) {
         await this.paymentTxRepo.updateGatewayPayload(successTx.id, gatewayRawPayload, client);
       }
@@ -584,8 +599,8 @@ export class CancellationService {
       return {
         cancellation: updatedRequest,
         settlement,
-        booking: cancelledBooking,
-        payment: updatedPayment,
+        booking: currentBooking,
+        payment: successTx,
       };
     });
   }

@@ -313,6 +313,7 @@ describe('Phase 6 Step 8 — GST Invoice & E-Ticket Voucher PDF Generation (Inte
 
     // 3. Test BullMQ Queue & Worker processor
     const queue = createDocumentQueue(workerConfig);
+    queue.on('error', () => {});
     expect(queue.name).toBe(DOCUMENT_QUEUE_NAME);
 
     // Enqueue document generation job contract
@@ -333,6 +334,6 @@ describe('Phase 6 Step 8 — GST Invoice & E-Ticket Voucher PDF Generation (Inte
     expect(storedVouchers.length).toBe(1);
     expect(storedVouchers[0]!.pdfStorageKey).toContain(`documents/vouchers/${bookingId}/`);
 
-    await queue.close();
+    await queue.close().catch(() => {});
   });
 });

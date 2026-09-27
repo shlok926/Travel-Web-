@@ -403,10 +403,12 @@ describe('Phase 6 Step 10 — CancellationService (Unit)', () => {
         adminId: 'admin-1',
       });
 
-      // Assertions: Ambiguous timeout does NOT crash, records PROCESSING, and AUTHORIZES cancellation
+      // Assertions: Ambiguous timeout does NOT crash, records PROCESSING, AUTHORIZES cancellation,
+      // but keeps booking CONFIRMED, payment SUCCESS, and seats RESERVED (no premature release).
       expect(result.cancellation.status).toBe('AUTHORIZED');
       expect(result.settlement.settlementStatus).toBe('PROCESSING');
-      expect(result.booking.status).toBe('CANCELLED');
+      expect(result.booking.status).toBe('CONFIRMED');
+      expect(result.payment?.status).toBe('SUCCESS');
       expect(cancellationRequestRepoMock.updateStatusGuarded).toHaveBeenCalledWith(
         'cr-timeout-1',
         'PENDING_APPROVAL',
@@ -421,6 +423,9 @@ describe('Phase 6 Step 10 — CancellationService (Unit)', () => {
         }),
         expect.anything(),
       );
+      expect(bookingRepoMock.updateStatusGuarded).not.toHaveBeenCalled();
+      expect(departureRepoMock.decrementBookedSeats).not.toHaveBeenCalled();
+      expect(paymentTxRepoMock.updateStatusGuarded).not.toHaveBeenCalled();
     });
 
     it('should handle explicit gateway rejection by recording FAILED and keeping booking CONFIRMED', async () => {
