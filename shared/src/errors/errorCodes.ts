@@ -42,6 +42,11 @@ export const ErrorCodes = {
   DOCUMENT_NOT_FOUND: 'DOCUMENT_NOT_FOUND',
   DOCUMENT_ACCESS_DENIED: 'DOCUMENT_ACCESS_DENIED',
   CANCELLATION_REQUEST_NOT_FOUND: 'CANCELLATION_REQUEST_NOT_FOUND',
+
+  // Admin, CMS & Operations Error Codes (Phase 7)
+  HERO_SLIDER_NOT_FOUND: 'HERO_SLIDER_NOT_FOUND',
+  CMS_PAGE_NOT_FOUND: 'CMS_PAGE_NOT_FOUND',
+  AUDIT_LOG_NOT_FOUND: 'AUDIT_LOG_NOT_FOUND',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
