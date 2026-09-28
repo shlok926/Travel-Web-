@@ -46,6 +46,22 @@ import {
   PdfGeneratorService,
   DocumentService,
 } from './modules/document/index.js';
+import {
+  HeroSliderRepository,
+  HeroSliderService,
+  CmsPageRepository,
+  CmsPageService,
+} from './modules/cms/index.js';
+import {
+  AdminAuditLogRepository,
+  AdminAuditLogService,
+  AdminDashboardRepository,
+  AdminDashboardService,
+  AdminPackageService,
+  AdminDepartureService,
+  AdminBookingService,
+  AdminCancellationService,
+} from './modules/admin/index.js';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -90,6 +106,18 @@ export interface AppDependencies {
   ticketVoucherRepo?: TicketVoucherRepository;
   pdfGenerator?: PdfGeneratorService;
   documentService?: DocumentService;
+  heroSliderRepo?: HeroSliderRepository;
+  heroSliderService?: HeroSliderService;
+  cmsPageRepo?: CmsPageRepository;
+  cmsPageService?: CmsPageService;
+  adminAuditLogRepo?: AdminAuditLogRepository;
+  adminAuditLogService?: AdminAuditLogService;
+  adminDashboardRepo?: AdminDashboardRepository;
+  adminDashboardService?: AdminDashboardService;
+  adminPackageService?: AdminPackageService;
+  adminDepartureService?: AdminDepartureService;
+  adminBookingService?: AdminBookingService;
+  adminCancellationService?: AdminCancellationService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -113,6 +141,18 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   taxInvoiceRepo: TaxInvoiceRepository;
   ticketVoucherRepo: TicketVoucherRepository;
   documentService: DocumentService;
+  heroSliderRepo: HeroSliderRepository;
+  heroSliderService: HeroSliderService;
+  cmsPageRepo: CmsPageRepository;
+  cmsPageService: CmsPageService;
+  adminAuditLogRepo: AdminAuditLogRepository;
+  adminAuditLogService: AdminAuditLogService;
+  adminDashboardRepo: AdminDashboardRepository;
+  adminDashboardService: AdminDashboardService;
+  adminPackageService: AdminPackageService;
+  adminDepartureService: AdminDepartureService;
+  adminBookingService: AdminBookingService;
+  adminCancellationService: AdminCancellationService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -250,6 +290,43 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       config.S3_BUCKET_PRIVATE,
     );
 
+  // Instantiate CMS Layer (Phase 7)
+  const heroSliderRepo = dependencies.heroSliderRepo ?? new HeroSliderRepository(db);
+  const heroSliderService = dependencies.heroSliderService ?? new HeroSliderService(heroSliderRepo);
+  const cmsPageRepo = dependencies.cmsPageRepo ?? new CmsPageRepository(db);
+  const cmsPageService = dependencies.cmsPageService ?? new CmsPageService(cmsPageRepo);
+
+  // Instantiate Admin, Audit & Operations Layer (Phase 7)
+  const adminAuditLogRepo = dependencies.adminAuditLogRepo ?? new AdminAuditLogRepository(db);
+  const adminAuditLogService =
+    dependencies.adminAuditLogService ?? new AdminAuditLogService(adminAuditLogRepo);
+  const adminDashboardRepo = dependencies.adminDashboardRepo ?? new AdminDashboardRepository(db);
+  const adminDashboardService =
+    dependencies.adminDashboardService ?? new AdminDashboardService(adminDashboardRepo);
+  const adminPackageService =
+    dependencies.adminPackageService ??
+    new AdminPackageService(
+      tourPackageService,
+      tourPackageRepo,
+      destinationRepo,
+      itineraryRepo,
+      adminAuditLogService,
+    );
+  const adminDepartureService =
+    dependencies.adminDepartureService ??
+    new AdminDepartureService(departureService, departureRepo, adminAuditLogService);
+  const adminBookingService =
+    dependencies.adminBookingService ??
+    new AdminBookingService(bookingService, bookingRepo, passengerRepo);
+  const adminCancellationService =
+    dependencies.adminCancellationService ??
+    new AdminCancellationService(
+      cancellationService,
+      cancellationRequestRepo,
+      bookingRepo,
+      adminAuditLogService,
+    );
+
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
   await app.register(securityPlugin, { config });
@@ -282,6 +359,10 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     paymentWebhookService,
     cancellationService,
     documentService,
+    heroSliderService,
+    cmsPageService,
+    adminAuditLogService,
+    adminDashboardService,
     config,
   });
 
@@ -306,6 +387,18 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     taxInvoiceRepo,
     ticketVoucherRepo,
     documentService,
+    heroSliderRepo,
+    heroSliderService,
+    cmsPageRepo,
+    cmsPageService,
+    adminAuditLogRepo,
+    adminAuditLogService,
+    adminDashboardRepo,
+    adminDashboardService,
+    adminPackageService,
+    adminDepartureService,
+    adminBookingService,
+    adminCancellationService,
     config,
   };
 }

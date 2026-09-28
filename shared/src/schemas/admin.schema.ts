@@ -72,6 +72,19 @@ export const adminAuditLogListQuerySchema = z
 
 export type AdminAuditLogListQueryInput = z.infer<typeof adminAuditLogListQuerySchema>;
 
+/**
+ * adminAuditLogIdParamSchema: Validates `:id` UUID route parameter for audit logs.
+ */
+export const adminAuditLogIdParamSchema = z
+  .object({
+    id: z
+      .string({ required_error: 'Audit log ID is required' })
+      .uuid('Invalid audit log ID format'),
+  })
+  .strict();
+
+export type AdminAuditLogIdParamInput = z.infer<typeof adminAuditLogIdParamSchema>;
+
 // ============================================================
 // 2. Admin Dashboard Stats Schemas
 // ============================================================

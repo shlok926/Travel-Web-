@@ -36,6 +36,18 @@ import {
 } from '../modules/payment/index.js';
 import { DocumentService, documentRoutes } from '../modules/document/index.js';
 import { localStorageRoutes } from './localStorage.routes.js';
+import {
+  HeroSliderService,
+  CmsPageService,
+  publicCmsRoutes,
+  adminCmsRoutes,
+} from '../modules/cms/index.js';
+import {
+  AdminAuditLogService,
+  AdminDashboardService,
+  adminAuditRoutes,
+  adminDashboardRoutes,
+} from '../modules/admin/index.js';
 
 export interface ApiRoutesOptions {
   db: DatabaseService;
@@ -53,6 +65,10 @@ export interface ApiRoutesOptions {
   paymentWebhookService?: PaymentWebhookService;
   cancellationService?: CancellationService;
   documentService?: DocumentService;
+  heroSliderService?: HeroSliderService;
+  cmsPageService?: CmsPageService;
+  adminAuditLogService?: AdminAuditLogService;
+  adminDashboardService?: AdminDashboardService;
   config?: EnvConfig;
 }
 
@@ -172,6 +188,38 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
       prefix: '/storage',
       storage: options.storage,
       config: options.config,
+    });
+  }
+
+  // 16. Register Public CMS Routes under /api/v1/cms (Phase 7)
+  if (options.heroSliderService && options.cmsPageService) {
+    await fastify.register(publicCmsRoutes, {
+      prefix: '/cms',
+      heroSliderService: options.heroSliderService,
+      cmsPageService: options.cmsPageService,
+    });
+
+    // 17. Register Admin CMS Routes under /api/v1/admin/cms (Phase 7)
+    await fastify.register(adminCmsRoutes, {
+      prefix: '/admin/cms',
+      heroSliderService: options.heroSliderService,
+      cmsPageService: options.cmsPageService,
+    });
+  }
+
+  // 18. Register Admin Audit Routes under /api/v1/admin/audit-logs (Phase 7)
+  if (options.adminAuditLogService) {
+    await fastify.register(adminAuditRoutes, {
+      prefix: '/admin/audit-logs',
+      auditLogService: options.adminAuditLogService,
+    });
+  }
+
+  // 19. Register Admin Dashboard Routes under /api/v1/admin/dashboard (Phase 7)
+  if (options.adminDashboardService) {
+    await fastify.register(adminDashboardRoutes, {
+      prefix: '/admin/dashboard',
+      dashboardService: options.adminDashboardService,
     });
   }
 };
