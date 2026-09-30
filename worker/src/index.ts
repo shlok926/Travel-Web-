@@ -3,11 +3,16 @@ import { loadWorkerEnv } from './config/workerEnv.js';
 import { createSmokeWorker } from './queues/smokeQueue.js';
 import { createHoldExpiryWorker } from './queues/holdExpiryQueue.js';
 import { createDocumentWorker } from './queues/documentQueue.js';
+import { createNotificationWorker } from './queues/notificationQueue.js';
 import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
 import { StorageFactory } from '../../backend/src/infrastructure/storage/index.js';
 import { BookingRepository } from '../../backend/src/modules/booking/repositories/booking.repository.js';
 import { PassengerRepository } from '../../backend/src/modules/booking/repositories/passenger.repository.js';
 import { IdempotencyRepository } from '../../backend/src/modules/booking/repositories/idempotency.repository.js';
+import { NotificationDeliveryRepository } from '../../backend/src/modules/notification/repositories/notificationDelivery.repository.js';
+import { SmtpEmailProvider } from '../../backend/src/modules/notification/adapters/smtpEmail.provider.js';
+import { MockEmailProvider } from '../../backend/src/modules/notification/adapters/mockEmail.provider.js';
+
 import { DepartureRepository } from '../../backend/src/modules/inventory/repositories/departure.repository.js';
 import { InventoryHoldRepository } from '../../backend/src/modules/inventory/repositories/inventoryHold.repository.js';
 import { TourPackageRepository } from '../../backend/src/modules/catalogue/repositories/tourPackage.repository.js';
@@ -114,6 +119,43 @@ async function startWorker(): Promise<void> {
     },
   });
 
+  // 4. Transactional Notification Delivery Worker (Phase 8 Step 5)
+  const notificationRepo = new NotificationDeliveryRepository(db);
+  const emailProvider =
+    envConfig.DEFAULT_EMAIL_PROVIDER === 'SMTP'
+      ? new SmtpEmailProvider({
+          host: envConfig.SMTP_HOST,
+          port: envConfig.SMTP_PORT,
+          secure: envConfig.SMTP_SECURE,
+          user: envConfig.SMTP_USER,
+          password: envConfig.SMTP_PASSWORD,
+          from: envConfig.SMTP_FROM,
+          timeoutMs: envConfig.SMTP_TIMEOUT_MS,
+        })
+      : new MockEmailProvider();
+
+  const notificationWorker = createNotificationWorker(
+    config,
+    {
+      notificationRepo,
+      emailProvider,
+    },
+    {
+      onProcessed: (job, result) => {
+        logger.info(
+          {
+            jobId: job.id,
+            notificationType: job.data.notificationType,
+            status: result.status,
+            deliveryId: result.deliveryId,
+            duplicate: result.duplicate,
+          },
+          'Processed notification delivery job',
+        );
+      },
+    },
+  );
+
   // Lifecycle Event Listeners
   holdExpiryWorker.on('completed', (job) => {
     logger.debug({ jobId: job?.id }, 'Hold expiry job completed');
@@ -139,6 +181,18 @@ async function startWorker(): Promise<void> {
     logger.error({ err }, 'Document generation worker internal error');
   });
 
+  notificationWorker.on('completed', (job) => {
+    logger.debug({ jobId: job?.id }, 'Notification delivery job completed');
+  });
+
+  notificationWorker.on('failed', (job, err) => {
+    logger.error({ jobId: job?.id, err }, 'Notification delivery job failed');
+  });
+
+  notificationWorker.on('error', (err) => {
+    logger.error({ err }, 'Notification delivery worker internal error');
+  });
+
   logger.info('🚀 Worker process initialized and listening for jobs.');
 
   // Graceful Shutdown
@@ -149,6 +203,7 @@ async function startWorker(): Promise<void> {
         smokeWorker.close(),
         holdExpiryWorker.close(),
         documentWorker.close(),
+        notificationWorker.close(),
         pdfGenerator.close(),
       ]);
       await db.close();

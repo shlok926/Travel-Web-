@@ -18,7 +18,11 @@ export class NotificationTemplateRegistry {
   /**
    * Renders a validated NotificationEventPayload into its respective email representation.
    */
-  render(payload: NotificationEventPayload): RenderedNotification {
+  render(
+    typeOrPayload: string | NotificationEventPayload,
+    maybePayload?: NotificationEventPayload,
+  ): RenderedNotification {
+    const payload = (maybePayload ?? typeOrPayload) as NotificationEventPayload;
     switch (payload.type) {
       case 'BOOKING_CONFIRMED':
         return this.bookingConfirmedTemplate.render(payload);
@@ -35,6 +39,13 @@ export class NotificationTemplateRegistry {
         );
       }
     }
+  }
+
+  static render(
+    typeOrPayload: string | NotificationEventPayload,
+    maybePayload?: NotificationEventPayload,
+  ): RenderedNotification {
+    return notificationTemplateRegistry.render(typeOrPayload, maybePayload);
   }
 }
 
