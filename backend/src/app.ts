@@ -61,8 +61,12 @@ import {
   AdminDepartureService,
   AdminBookingService,
   AdminCancellationService,
+  AdminNotificationService,
 } from './modules/admin/index.js';
-import { NotificationProducerService } from './modules/notification/index.js';
+import {
+  NotificationProducerService,
+  NotificationDeliveryRepository,
+} from './modules/notification/index.js';
 import {
   createNotificationQueue,
   NotificationJobData,
@@ -127,6 +131,8 @@ export interface AppDependencies {
   adminDepartureService?: AdminDepartureService;
   adminBookingService?: AdminBookingService;
   adminCancellationService?: AdminCancellationService;
+  notificationRepo?: NotificationDeliveryRepository;
+  adminNotificationService?: AdminNotificationService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -162,6 +168,8 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   adminDepartureService: AdminDepartureService;
   adminBookingService: AdminBookingService;
   adminCancellationService: AdminCancellationService;
+  adminNotificationService: AdminNotificationService;
+  notificationRepo: NotificationDeliveryRepository;
   notificationQueue?: Queue<NotificationJobData, NotificationJobResult> | null;
   notificationProducer?: NotificationProducerService;
   config: EnvConfig;
@@ -352,6 +360,15 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       bookingRepo,
       adminAuditLogService,
     );
+  const notificationRepo = dependencies.notificationRepo ?? new NotificationDeliveryRepository(db);
+  const adminNotificationService =
+    dependencies.adminNotificationService ??
+    new AdminNotificationService(
+      notificationRepo,
+      notificationProducer,
+      adminAuditLogService,
+      bookingRepo,
+    );
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
@@ -389,6 +406,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     cmsPageService,
     adminAuditLogService,
     adminDashboardService,
+    adminNotificationService,
     config,
   });
 
@@ -425,6 +443,8 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     adminDepartureService,
     adminBookingService,
     adminCancellationService,
+    adminNotificationService,
+    notificationRepo,
     notificationQueue,
     notificationProducer,
     config,

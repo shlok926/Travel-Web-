@@ -45,8 +45,10 @@ import {
 import {
   AdminAuditLogService,
   AdminDashboardService,
+  AdminNotificationService,
   adminAuditRoutes,
   adminDashboardRoutes,
+  adminNotificationRoutes,
 } from '../modules/admin/index.js';
 
 export interface ApiRoutesOptions {
@@ -69,6 +71,7 @@ export interface ApiRoutesOptions {
   cmsPageService?: CmsPageService;
   adminAuditLogService?: AdminAuditLogService;
   adminDashboardService?: AdminDashboardService;
+  adminNotificationService?: AdminNotificationService;
   config?: EnvConfig;
 }
 
@@ -220,6 +223,14 @@ export const apiRoutes: FastifyPluginAsync<ApiRoutesOptions> = async (
     await fastify.register(adminDashboardRoutes, {
       prefix: '/admin/dashboard',
       dashboardService: options.adminDashboardService,
+    });
+  }
+
+  // 20. Register Admin Notification Routes under /api/v1/admin/notifications (Phase 8 Step 7)
+  if (options.adminNotificationService) {
+    await fastify.register(adminNotificationRoutes, {
+      prefix: '/admin/notifications',
+      notificationService: options.adminNotificationService,
     });
   }
 };
