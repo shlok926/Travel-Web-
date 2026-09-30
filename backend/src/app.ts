@@ -61,7 +61,18 @@ import {
   AdminDepartureService,
   AdminBookingService,
   AdminCancellationService,
+  AdminNotificationService,
 } from './modules/admin/index.js';
+import {
+  NotificationProducerService,
+  NotificationDeliveryRepository,
+} from './modules/notification/index.js';
+import {
+  createNotificationQueue,
+  NotificationJobData,
+  NotificationJobResult,
+} from '../../worker/src/queues/notificationQueue.js';
+import type { Queue } from 'bullmq';
 import { loggingPlugin } from './plugins/logging.js';
 import { securityPlugin } from './plugins/security.js';
 import { authPlugin } from './plugins/auth.js';
@@ -74,6 +85,8 @@ export interface AppDependencies {
   db?: DatabaseService;
   redis?: RedisService;
   storage?: IStorageService;
+  notificationQueue?: Queue<NotificationJobData, NotificationJobResult> | null;
+  notificationProducer?: NotificationProducerService;
   userRepo?: UserRepository;
   refreshTokenRepo?: RefreshTokenRepository;
   authService?: AuthService;
@@ -118,6 +131,8 @@ export interface AppDependencies {
   adminDepartureService?: AdminDepartureService;
   adminBookingService?: AdminBookingService;
   adminCancellationService?: AdminCancellationService;
+  notificationRepo?: NotificationDeliveryRepository;
+  adminNotificationService?: AdminNotificationService;
 }
 
 export async function createApp(dependencies: AppDependencies = {}): Promise<{
@@ -153,6 +168,10 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
   adminDepartureService: AdminDepartureService;
   adminBookingService: AdminBookingService;
   adminCancellationService: AdminCancellationService;
+  adminNotificationService: AdminNotificationService;
+  notificationRepo: NotificationDeliveryRepository;
+  notificationQueue?: Queue<NotificationJobData, NotificationJobResult> | null;
+  notificationProducer?: NotificationProducerService;
   config: EnvConfig;
 }> {
   const config = dependencies.config ?? loadEnv();
@@ -238,6 +257,16 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     dependencies.refundSettlementRepo ?? new RefundSettlementRepository(db);
   const gatewayFactory = dependencies.gatewayFactory ?? new PaymentGatewayFactory(config);
 
+  // Instantiate Notification Producer (Phase 8 Step 5 & 6)
+  const notificationQueue =
+    dependencies.notificationQueue !== undefined
+      ? dependencies.notificationQueue
+      : config.NODE_ENV !== 'test' && config.REDIS_HOST
+        ? createNotificationQueue(config)
+        : null;
+  const notificationProducer =
+    dependencies.notificationProducer ?? new NotificationProducerService(notificationQueue);
+
   // Instantiate Booking Layer (Phase 5 & 6)
   const bookingService =
     dependencies.bookingService ??
@@ -252,6 +281,8 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       itineraryRepo,
       destinationRepo,
       paymentTxRepo,
+      undefined,
+      notificationProducer,
     );
 
   // Instantiate Payment Services (Phase 6)
@@ -271,6 +302,8 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       refundSettlementRepo,
       paymentTxRepo,
       gatewayFactory,
+      undefined,
+      notificationProducer,
     );
 
   // Instantiate Document Services (Phase 6 Step 8)
@@ -288,6 +321,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       storage,
       pdfGenerator,
       config.S3_BUCKET_PRIVATE,
+      notificationProducer,
     );
 
   // Instantiate CMS Layer (Phase 7)
@@ -326,6 +360,15 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
       bookingRepo,
       adminAuditLogService,
     );
+  const notificationRepo = dependencies.notificationRepo ?? new NotificationDeliveryRepository(db);
+  const adminNotificationService =
+    dependencies.adminNotificationService ??
+    new AdminNotificationService(
+      notificationRepo,
+      notificationProducer,
+      adminAuditLogService,
+      bookingRepo,
+    );
 
   // Register Core Middleware Plugins
   await app.register(loggingPlugin, { config });
@@ -363,6 +406,7 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     cmsPageService,
     adminAuditLogService,
     adminDashboardService,
+    adminNotificationService,
     config,
   });
 
@@ -399,6 +443,10 @@ export async function createApp(dependencies: AppDependencies = {}): Promise<{
     adminDepartureService,
     adminBookingService,
     adminCancellationService,
+    adminNotificationService,
+    notificationRepo,
+    notificationQueue,
+    notificationProducer,
     config,
   };
 }
