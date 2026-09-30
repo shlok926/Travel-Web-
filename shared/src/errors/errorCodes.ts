@@ -47,6 +47,10 @@ export const ErrorCodes = {
   HERO_SLIDER_NOT_FOUND: 'HERO_SLIDER_NOT_FOUND',
   CMS_PAGE_NOT_FOUND: 'CMS_PAGE_NOT_FOUND',
   AUDIT_LOG_NOT_FOUND: 'AUDIT_LOG_NOT_FOUND',
+
+  // Notification Error Codes (Phase 8)
+  NOTIFICATION_NOT_FOUND: 'NOTIFICATION_NOT_FOUND',
+  NOTIFICATION_DELIVERY_FAILED: 'NOTIFICATION_DELIVERY_FAILED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
