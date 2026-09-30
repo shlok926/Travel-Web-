@@ -719,7 +719,7 @@ describe('Phase 7 Step 6 — Frontend Admin & CMS Implementation Test Suite', ()
       expect(container.innerHTML).toContain('OPEN');
     });
 
-    it('6.2 opens and displays confirmed passenger manifest', async () => {
+    it('6.2 opens and displays confirmed passenger manifest with exact contract fields', async () => {
       const mockManifest = [
         {
           fullName: 'Alice Traveller',
@@ -727,6 +727,8 @@ describe('Phase 7 Step 6 — Frontend Admin & CMS Implementation Test Suite', ()
           ageAtBooking: 29,
           gender: 'FEMALE',
           bookingReference: 'BK-202610-ABCD',
+          customerName: 'Bob Customer',
+          customerEmail: 'bob@example.com',
           isPrimaryContact: true,
           specialRequests: 'Window seat preference',
         },
@@ -745,7 +747,11 @@ describe('Phase 7 Step 6 — Frontend Admin & CMS Implementation Test Suite', ()
       expect(container.innerHTML).toContain('Confirmed Passenger Manifest');
       expect(container.innerHTML).toContain('Alice Traveller');
       expect(container.innerHTML).toContain('BK-202610-ABCD');
+      expect(container.innerHTML).toContain('bob@example.com');
       expect(container.innerHTML).toContain('Window seat preference');
+      // Verify no fabricated fields (like emergency contact)
+      expect(container.innerHTML).not.toContain('emergencyContact');
+      expect(container.innerHTML).not.toContain('Emergency Contact');
     });
   });
 
@@ -788,6 +794,28 @@ describe('Phase 7 Step 6 — Frontend Admin & CMS Implementation Test Suite', ()
       expect(container.innerHTML).toContain('Royal Rajasthan');
       expect(container.innerHTML).toContain('CONFIRMED');
       expect(container.innerHTML).toContain('₹70,000');
+    });
+
+    it('7.2 strictly enforces CANONICAL booking statuses (AWAITING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED) without HOLD or REFUNDED', async () => {
+      vi.spyOn(api, 'getAdminBookings').mockResolvedValueOnce(mockBookings);
+
+      const container = (globalThis as any).document.createElement('div');
+      await AdminBookingsTab.render(container);
+
+      const filterSelect = container.querySelector('#admin-booking-status-filter');
+      expect(filterSelect).not.toBeNull();
+
+      const options = filterSelect!.querySelectorAll('option');
+      const optionValues = options.map((opt: any) => opt.value);
+
+      expect(optionValues).toContain('AWAITING_PAYMENT');
+      expect(optionValues).toContain('CONFIRMED');
+      expect(optionValues).toContain('CANCELLED');
+      expect(optionValues).toContain('EXPIRED');
+
+      // Assert that HOLD and REFUNDED are NOT present as booking statuses
+      expect(optionValues).not.toContain('HOLD');
+      expect(optionValues).not.toContain('REFUNDED');
     });
   });
 
@@ -851,6 +879,23 @@ describe('Phase 7 Step 6 — Frontend Admin & CMS Implementation Test Suite', ()
           adminNotes: 'Approved as per medical policy',
         }),
       );
+    });
+
+    it('8.3 displays authoritative Phase 6 DEC-007 refund policy rules (>30d: 90%, 15-30d: 50%, 7-14d: 25%, <7d: 0%)', async () => {
+      vi.spyOn(api, 'getAdminCancellations').mockResolvedValueOnce(mockCancellations);
+
+      const container = (globalThis as any).document.createElement('div');
+      await AdminCancellationsTab.render(container);
+
+      // Check authoritative policy text in cancellation tab
+      expect(container.innerHTML).toContain('&gt; 30 days: 90% refund');
+      expect(container.innerHTML).toContain('15–30 days: 50% refund');
+      expect(container.innerHTML).toContain('7–14 days: 25% refund');
+      expect(container.innerHTML).toContain('&lt; 7 days / past: 0% refund');
+
+      // Ensure incorrect percentages are NOT displayed
+      expect(container.innerHTML).not.toContain('15–30 days: 75%');
+      expect(container.innerHTML).not.toContain('7–14 days: 50%');
     });
   });
 

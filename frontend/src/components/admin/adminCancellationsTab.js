@@ -23,6 +23,13 @@ export class AdminCancellationsTab {
         </div>
       </div>
 
+      <div class="cancellation-policy-info-box" style="margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: rgba(52, 152, 219, 0.08); border-left: 4px solid #3498db; border-radius: 4px; font-size: 0.875rem;">
+        <strong>Authoritative Phase 6 Refund Schedule (DEC-007):</strong>
+        <span style="margin-left: 0.5rem; color: var(--text-muted, #7f8c8d);">
+          &gt; 30 days: 90% refund (10% fee) · 15–30 days: 50% refund (50% fee) · 7–14 days: 25% refund (75% fee) · &lt; 7 days / past: 0% refund (100% fee)
+        </span>
+      </div>
+
       <div class="admin-filter-bar">
         <div class="filter-group">
           <label for="admin-cancel-status-filter" class="filter-label">Request Status</label>

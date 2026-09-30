@@ -499,7 +499,7 @@ export class AdminInventoryTab {
               <th>Passenger Name</th>
               <th>Type & Age</th>
               <th>Gender</th>
-              <th>Booking Reference</th>
+              <th>Booking Ref & Contact</th>
               <th>Special Requests</th>
             </tr>
           </thead>
@@ -515,7 +515,10 @@ export class AdminInventoryTab {
                 </td>
                 <td>${escapeHtml(p.passengerType || 'ADULT')} · ${p.ageAtBooking ?? '—'} yrs</td>
                 <td>${escapeHtml(p.gender || '—')}</td>
-                <td><code>${escapeHtml(p.bookingReference || '—')}</code></td>
+                <td>
+                  <code>${escapeHtml(p.bookingReference || '—')}</code>
+                  ${p.customerEmail ? `<div class="table-secondary-text">${escapeHtml(p.customerName || '')} &lt;${escapeHtml(p.customerEmail)}&gt;</div>` : ''}
+                </td>
                 <td><span class="table-secondary-text">${escapeHtml(p.specialRequests || 'None')}</span></td>
               </tr>
             `,

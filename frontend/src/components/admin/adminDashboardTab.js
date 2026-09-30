@@ -16,7 +16,7 @@ export class AdminDashboardTab {
       <div class="admin-tab-header">
         <div>
           <h2 class="admin-tab-title">Operational Dashboard</h2>
-          <p class="admin-tab-subtitle">Real-time system overview and operational capacity metrics</p>
+          <p class="admin-tab-subtitle">Backend-sourced operational statistics and capacity metrics</p>
         </div>
         <button type="button" class="btn-secondary btn-sm" id="admin-dashboard-refresh-btn" aria-label="Refresh stats">
           🔄 Refresh
