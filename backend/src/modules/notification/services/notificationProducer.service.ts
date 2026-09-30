@@ -14,7 +14,6 @@ import {
   NotificationJobResult,
 } from '../../../../../worker/src/queues/notificationQueue.js';
 
-
 // ============================================================
 // Phase 8 Step 5 — Notification Job Producer Service
 // ============================================================

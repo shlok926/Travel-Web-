@@ -16,7 +16,6 @@ import {
   RefundSettledNotificationPayload,
 } from '../../shared/src/index.js';
 
-
 // ============================================================
 // Phase 8 Step 5 — Notification Queue, Worker & Pipeline Tests
 // ============================================================
@@ -117,7 +116,6 @@ describe('Phase 8 Step 5 — Notification Queue & Worker Pipeline', () => {
       }),
     };
   });
-
 
   // ============================================================
   // 1. Deterministic Job ID & Idempotency Key Generation
