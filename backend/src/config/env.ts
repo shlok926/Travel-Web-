@@ -104,6 +104,16 @@ const envSchema = z
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_PUBLISHABLE_KEY: z.string().optional(),
     PAYMENT_WEBHOOK_SECRET: z.string().optional(),
+
+    // Notification & Email Provider Configuration (Phase 8)
+    DEFAULT_EMAIL_PROVIDER: z.enum(['MOCK', 'SMTP']).default('MOCK'),
+    SMTP_HOST: z.string().default('localhost'),
+    SMTP_PORT: z.coerce.number().default(587),
+    SMTP_SECURE: z.coerce.boolean().default(false),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASSWORD: z.string().optional(),
+    SMTP_FROM: z.string().default('noreply@youngtoursandtravels.com'),
+    SMTP_TIMEOUT_MS: z.coerce.number().default(10000),
   })
   .refine(
     (data) => {

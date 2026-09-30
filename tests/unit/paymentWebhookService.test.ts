@@ -45,6 +45,12 @@ describe('Phase 6 Step 6 — Payment Webhook Service (Unit & Security Invariants
     DEFAULT_PAYMENT_PROVIDER: 'MOCK',
     PAYMENT_WEBHOOK_SECRET: 'test_webhook_secret_key_1234567890',
     RAZORPAY_KEY_SECRET: 'test_razorpay_secret_key',
+    DEFAULT_EMAIL_PROVIDER: 'MOCK',
+    SMTP_HOST: 'localhost',
+    SMTP_PORT: 587,
+    SMTP_SECURE: false,
+    SMTP_FROM: 'noreply@youngtoursandtravels.com',
+    SMTP_TIMEOUT_MS: 10000,
   };
 
   const sampleTx = {
