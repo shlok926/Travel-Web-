@@ -82,11 +82,27 @@ describe('Phase 8 Step 6 — Domain Notification Trigger Integration & Post-Comm
           [testUserId, 'notification.tester@example.com'],
         );
 
-        const depRes = await db.query<{ id: string }>(
-          `SELECT id FROM departure_schedules WHERE status = 'OPEN' LIMIT 1;`,
+        const pkgRes = await db.query<{ id: string }>(
+          `SELECT id FROM tour_packages WHERE is_published = true LIMIT 1;`,
         );
-        if (depRes.rows.length > 0 && depRes.rows[0]) {
-          testDepartureId = depRes.rows[0].id;
+        if (pkgRes.rows.length > 0 && pkgRes.rows[0]) {
+          const packageId = pkgRes.rows[0].id;
+          const depRes = await db.query<{ id: string }>(
+            `SELECT id FROM departure_schedules WHERE package_id = $1 AND available_seats > 5 AND status = 'OPEN' LIMIT 1;`,
+            [packageId],
+          );
+          if (depRes.rows.length > 0 && depRes.rows[0]) {
+            testDepartureId = depRes.rows[0].id;
+          } else {
+            const newDep = await departureRepo.create({
+              packageId,
+              departureDate: '2027-11-20',
+              returnDate: '2027-11-25',
+              totalSeatCapacity: 50,
+              status: 'OPEN',
+            });
+            testDepartureId = newDep.id;
+          }
         }
       }
     } catch {
@@ -108,6 +124,12 @@ describe('Phase 8 Step 6 — Domain Notification Trigger Integration & Post-Comm
     bookingService: BookingService,
     userEmail: string = 'traveler@example.com',
   ) {
+    if (db && isDbAvailable && testDepartureId) {
+      await db.query(
+        `UPDATE departure_schedules SET available_seats = available_seats + 10, status = 'OPEN' WHERE id = $1;`,
+        [testDepartureId],
+      );
+    }
     const idempotencyKey = `idemp-${crypto.randomUUID()}`;
     const result = await bookingService.createBooking({
       userId: testUserId,

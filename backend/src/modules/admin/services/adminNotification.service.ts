@@ -1,8 +1,10 @@
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import {
   AdminNotificationListQueryDto,
   adminNotificationListQuerySchema,
   adminNotificationIdParamSchema,
+  notificationIdempotencyKeySchema,
   NotificationDeliveryDto,
   AppError,
   ErrorCodes,
@@ -137,16 +139,18 @@ export class AdminNotificationService {
    * Manually resend an existing notification record.
    *
    * Business Rules:
-   * 1. Requires valid UUID and ADMIN actor identity.
+   * 1. Requires valid UUID, ADMIN actor identity, and client-supplied Idempotency-Key.
    * 2. Authoritative stored data (recipient, type, reference) is strictly reused; no admin overrides permitted.
    * 3. In-flight records (PENDING / RETRYING) are rejected to prevent duplicate active BullMQ jobs.
-   * 4. Deliberate resend receives a distinct, collision-resistant idempotency key: `resend-${id}-${Date.now()}`.
+   * 4. Deliberate resend receives a deterministic collision-resistant operation identity derived from delivery ID and client key:
+   *    `resend-${delivery.id}-${SHA256(clientKey)}` (108 chars <= 128 max length).
    * 5. Enqueues job through `NotificationProducerService`.
    * 6. Appends immutable audit trail entry in `admin_audit_logs`.
    */
   async resendNotification(
     id: string,
     adminId: string,
+    idempotencyKey: string,
     ipAddress?: string | null,
   ): Promise<ResendNotificationResult> {
     const parsed = adminNotificationIdParamSchema.safeParse({ id });
@@ -157,6 +161,7 @@ export class AdminNotificationService {
     }
 
     z.string().uuid('Admin ID must be a valid UUID').parse(adminId);
+    const validatedKey = notificationIdempotencyKeySchema.parse(idempotencyKey);
 
     const delivery = await this.notificationRepo.findById(parsed.data.id);
     if (!delivery) {
@@ -286,7 +291,10 @@ export class AdminNotificationService {
         );
     }
 
-    const resendKey = `resend-${delivery.id}-${Date.now()}`;
+    // Deterministic, collision-resistant bounded operation key within VARCHAR(128)
+    const clientKeyHash = crypto.createHash('sha256').update(validatedKey).digest('hex');
+    const resendKey = `resend-${delivery.id}-${clientKeyHash}`;
+
     const rendered = NotificationTemplateRegistry.render(delivery.notificationType, payload);
 
     let jobId: string | undefined;
@@ -317,6 +325,7 @@ export class AdminNotificationService {
           referenceId: delivery.referenceId,
           channel: delivery.channel,
           previousStatus: delivery.status,
+          clientKey: validatedKey,
           resendKey,
           jobId,
         },

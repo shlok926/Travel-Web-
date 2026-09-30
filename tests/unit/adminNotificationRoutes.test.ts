@@ -419,14 +419,20 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
   });
 
   // ============================================================
-  // 3. POST /api/v1/admin/notifications/:id/resend — Resend & Security
+  // 3. POST /api/v1/admin/notifications/:id/resend — Resend & Idempotency
   // ============================================================
 
   describe('POST /api/v1/admin/notifications/:id/resend', () => {
+    const validClientKey = 'admin-manual-resend-req-12345';
+
+    // ------------------------------------------------------------
+    // RBAC & Authentication Guardrails
+    // ------------------------------------------------------------
     it('returns 401 Unauthorized when unauthenticated', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: { 'idempotency-key': validClientKey },
         payload: {},
       });
 
@@ -437,7 +443,10 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
-        headers: { authorization: `Bearer ${customerToken}` },
+        headers: {
+          authorization: `Bearer ${customerToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {},
       });
 
@@ -448,18 +457,100 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
-        headers: { authorization: `Bearer ${agentToken}` },
+        headers: {
+          authorization: `Bearer ${agentToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {},
       });
 
       expect(response.statusCode).toBe(403);
     });
 
-    it('successfully processes manual resend for ADMIN and creates audit record', async () => {
+    // ------------------------------------------------------------
+    // Header Validation Guardrails
+    // ------------------------------------------------------------
+    it('returns 400 Bad Request when Idempotency-Key header is missing', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
         headers: { authorization: `Bearer ${adminToken}` },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      const json = response.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 Bad Request when Idempotency-Key header is empty', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': '',
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      const json = response.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 Bad Request when Idempotency-Key header is whitespace only', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': '    ',
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      const json = response.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 Bad Request when Idempotency-Key exceeds 128 characters', async () => {
+      const overlengthKey = 'k'.repeat(129);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': overlengthKey,
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      const json = response.json();
+      expect(json.success).toBe(false);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    // ------------------------------------------------------------
+    // Same Operation Deduplication & Concurrency
+    // ------------------------------------------------------------
+    it('successfully processes manual resend for ADMIN with valid Idempotency-Key and creates audit record', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {},
       });
 
@@ -481,6 +572,7 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
             notificationType: 'BOOKING_CONFIRMED',
             recipientEmail: 'traveler@example.com',
             previousStatus: 'SENT',
+            clientKey: validClientKey,
             jobId: 'bullmq-job-999',
           }),
         }),
@@ -488,11 +580,160 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
       );
     });
 
+    it('produces identical deterministic resendKey for concurrent requests with same Idempotency-Key K1', async () => {
+      const concurrentResponses = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'idempotency-key': 'concurrent-key-K1',
+          },
+          payload: {},
+        }),
+        app.inject({
+          method: 'POST',
+          url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+          headers: {
+            authorization: `Bearer ${adminToken}`,
+            'idempotency-key': 'concurrent-key-K1',
+          },
+          payload: {},
+        }),
+      ]);
+
+      expect(concurrentResponses[0].statusCode).toBe(200);
+      expect(concurrentResponses[1].statusCode).toBe(200);
+
+      const calls = vi.mocked(mockProducer.enqueueNotification).mock.calls;
+      expect(calls.length).toBe(2);
+      expect(calls[0]?.[0]?.idempotencyKey).toBe(calls[1]?.[0]?.idempotencyKey);
+    });
+
+    // ------------------------------------------------------------
+    // Intentional Subsequent Resends (K1 vs K2)
+    // ------------------------------------------------------------
+    it('produces distinct resend operation keys for intentional distinct resends K1 and K2', async () => {
+      const resp1 = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': 'client-key-K1',
+        },
+        payload: {},
+      });
+
+      const resp2 = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': 'client-key-K2',
+        },
+        payload: {},
+      });
+
+      expect(resp1.statusCode).toBe(200);
+      expect(resp2.statusCode).toBe(200);
+
+      const calls = vi.mocked(mockProducer.enqueueNotification).mock.calls;
+      expect(calls[0]?.[0]?.idempotencyKey).not.toBe(calls[1]?.[0]?.idempotencyKey);
+    });
+
+    // ------------------------------------------------------------
+    // State Guards
+    // ------------------------------------------------------------
+    it('returns 409 Conflict when attempting to resend in-flight notification (RETRYING)', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleInFlightDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(409);
+      const json = response.json();
+      expect(json.error.code).toBe('CONFLICT');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 Conflict when attempting to resend in-flight notification (PENDING)', async () => {
+      const samplePendingDelivery: NotificationDeliveryEntity = {
+        ...sampleDelivery,
+        id: '99991111-2222-3333-4444-555566667777',
+        status: 'PENDING',
+      };
+      vi.mocked(mockNotificationRepo.findById).mockResolvedValueOnce(samplePendingDelivery);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${samplePendingDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(409);
+      const json = response.json();
+      expect(json.error.code).toBe('CONFLICT');
+      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+    it('allows manual resend for FAILED notification', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleFailedDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': 'resend-failed-001',
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      const json = response.json();
+      expect(json.success).toBe(true);
+      expect(mockProducer.enqueueNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notificationType: 'DOCUMENT_READY',
+          recipientEmail: 'client@example.com',
+        }),
+      );
+    });
+
+    it('allows manual resend for SENT notification', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': 'resend-sent-001',
+        },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      const json = response.json();
+      expect(json.success).toBe(true);
+    });
+
+    // ------------------------------------------------------------
+    // Strict Validation & Data Safety Guardrails
+    // ------------------------------------------------------------
     it('Security Guard: Rejects administrator attempts to override recipient or subject (Strict Empty Body)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
-        headers: { authorization: `Bearer ${adminToken}` },
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {
           recipientEmail: 'attacker@evil.com',
           subject: 'Forged subject line',
@@ -506,25 +747,14 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
       expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
     });
 
-    it('returns 409 Conflict when attempting to resend in-flight notification (RETRYING)', async () => {
-      const response = await app.inject({
-        method: 'POST',
-        url: `/api/v1/admin/notifications/${sampleInFlightDelivery.id}/resend`,
-        headers: { authorization: `Bearer ${adminToken}` },
-        payload: {},
-      });
-
-      expect(response.statusCode).toBe(409);
-      const json = response.json();
-      expect(json.error.code).toBe('CONFLICT');
-      expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
-    });
-
     it('returns 404 NOT_FOUND when resending non-existent notification', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/v1/admin/notifications/00000000-0000-4000-8000-000000000000/resend',
-        headers: { authorization: `Bearer ${adminToken}` },
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {},
       });
 
@@ -537,7 +767,10 @@ describe('Phase 8 Step 7 — Admin Notification Operations REST APIs & RBAC Guar
       const response = await app.inject({
         method: 'POST',
         url: `/api/v1/admin/notifications/${sampleDelivery.id}/resend`,
-        headers: { authorization: `Bearer ${adminToken}` },
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          'idempotency-key': validClientKey,
+        },
         payload: {},
       });
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import crypto from 'node:crypto';
 import {
   AdminNotificationService,
   toNotificationDeliveryDto,
@@ -22,6 +23,7 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
   let mockBookingRepo: BookingRepository;
 
   const sampleAdminId = '99999999-9999-4999-8999-999999999999';
+  const sampleIdempotencyKey = 'client-idempotency-key-001';
 
   const sampleDelivery: NotificationDeliveryEntity = {
     id: '11111111-1111-4111-8111-111111111111',
@@ -269,14 +271,18 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
   });
 
   // ============================================================
-  // 4. Manual Resend Operations & Security
+  // 4. Manual Resend Operations, Idempotency & Collision Safety
   // ============================================================
 
   describe('resendNotification', () => {
     it('successfully resends a SENT notification by reconstructing authoritative payload', async () => {
+      const expectedHash = crypto.createHash('sha256').update(sampleIdempotencyKey).digest('hex');
+      const expectedResendKey = `resend-${sampleDelivery.id}-${expectedHash}`;
+
       const result = await service.resendNotification(
         sampleDelivery.id,
         sampleAdminId,
+        sampleIdempotencyKey,
         '127.0.0.1',
       );
 
@@ -284,9 +290,10 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
       expect(result.jobId).toBe('bullmq-job-999');
       expect(result.notification.id).toBe(sampleDelivery.id);
 
-      // Verify producer was invoked with deterministic resend idempotency key and authoritative booking context
+      // Verify producer was invoked with deterministic resend idempotency key
       expect(mockProducer.enqueueNotification).toHaveBeenCalledWith(
         expect.objectContaining({
+          idempotencyKey: expectedResendKey,
           recipientEmail: 'traveler@example.com',
           channel: 'EMAIL',
           notificationType: 'BOOKING_CONFIRMED',
@@ -301,7 +308,7 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
         }),
       );
 
-      // Verify audit logging
+      // Verify audit logging contains both clientKey and resendKey
       expect(mockAuditLogService.logAction).toHaveBeenCalledWith({
         adminId: sampleAdminId,
         action: 'NOTIFICATION_RESEND',
@@ -312,14 +319,65 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
           recipientEmail: 'traveler@example.com',
           referenceId: 'BK-20261001-TEST',
           previousStatus: 'SENT',
+          clientKey: sampleIdempotencyKey,
+          resendKey: expectedResendKey,
           jobId: 'bullmq-job-999',
         }),
         ipAddress: '127.0.0.1',
       });
     });
 
+    it('generates the EXACT SAME resendKey for the same delivery and same client key', async () => {
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, 'client-key-ABC');
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, 'client-key-ABC');
+
+      const firstCallKey = vi.mocked(mockProducer.enqueueNotification).mock.calls[0]?.[0]
+        ?.idempotencyKey;
+      const secondCallKey = vi.mocked(mockProducer.enqueueNotification).mock.calls[1]?.[0]
+        ?.idempotencyKey;
+
+      expect(firstCallKey).toBe(secondCallKey);
+    });
+
+    it('generates DISTINCT resendKeys for different client keys on the same delivery', async () => {
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, 'client-key-K1');
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, 'client-key-K2');
+
+      const firstCallKey = vi.mocked(mockProducer.enqueueNotification).mock.calls[0]?.[0]
+        ?.idempotencyKey;
+      const secondCallKey = vi.mocked(mockProducer.enqueueNotification).mock.calls[1]?.[0]
+        ?.idempotencyKey;
+
+      expect(firstCallKey).not.toBe(secondCallKey);
+    });
+
+    it('Collision Safety: Two distinct 128-char keys differing only at the end produce distinct resend keys', async () => {
+      const prefix = 'a'.repeat(117);
+      const key1 = `${prefix}_SUFFIX_ONE`;
+      const key2 = `${prefix}_SUFFIX_TWO`;
+
+      expect(key1.length).toBe(128);
+      expect(key2.length).toBe(128);
+
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, key1);
+      await service.resendNotification(sampleDelivery.id, sampleAdminId, key2);
+
+      const key1Result = vi.mocked(mockProducer.enqueueNotification).mock.calls[0]?.[0]
+        ?.idempotencyKey;
+      const key2Result = vi.mocked(mockProducer.enqueueNotification).mock.calls[1]?.[0]
+        ?.idempotencyKey;
+
+      expect(key1Result).not.toBe(key2Result);
+      expect(key1Result?.length).toBeLessThanOrEqual(128);
+      expect(key2Result?.length).toBeLessThanOrEqual(128);
+    });
+
     it('successfully resends a FAILED notification', async () => {
-      const result = await service.resendNotification(sampleFailedDelivery.id, sampleAdminId);
+      const result = await service.resendNotification(
+        sampleFailedDelivery.id,
+        sampleAdminId,
+        'retry-failed-001',
+      );
 
       expect(result.success).toBe(true);
       expect(mockProducer.enqueueNotification).toHaveBeenCalledWith(
@@ -333,7 +391,7 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
 
     it('rejects resend for in-flight notifications (RETRYING / PENDING) with 409 CONFLICT', async () => {
       await expect(
-        service.resendNotification(sampleInFlightDelivery.id, sampleAdminId),
+        service.resendNotification(sampleInFlightDelivery.id, sampleAdminId, sampleIdempotencyKey),
       ).rejects.toThrowError(/cannot be manually resent until terminal state is reached/);
 
       expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();
@@ -341,7 +399,11 @@ describe('Phase 8 Step 7 — Admin Notification Service Unit Tests', () => {
 
     it('throws NOTIFICATION_NOT_FOUND (404) when resending non-existent notification', async () => {
       await expect(
-        service.resendNotification('00000000-0000-4000-8000-000000000000', sampleAdminId),
+        service.resendNotification(
+          '00000000-0000-4000-8000-000000000000',
+          sampleAdminId,
+          sampleIdempotencyKey,
+        ),
       ).rejects.toThrowError();
 
       expect(mockProducer.enqueueNotification).not.toHaveBeenCalled();

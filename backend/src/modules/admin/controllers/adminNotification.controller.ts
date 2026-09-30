@@ -82,12 +82,36 @@ export class AdminNotificationController {
     // Enforce strictly empty body to prohibit administrator overrides
     parseZod(adminNotificationResendRequestSchema, request.body ?? {}, 'body');
 
+    // 1. Idempotency-Key Header extraction & validation
+    const rawIdempotencyKey = request.headers['idempotency-key'];
+    if (
+      !rawIdempotencyKey ||
+      typeof rawIdempotencyKey !== 'string' ||
+      rawIdempotencyKey.trim().length === 0
+    ) {
+      throw AppError.badRequest('Idempotency-Key header is required', [
+        { field: 'idempotency-key', issue: 'Header is missing or empty' },
+      ]);
+    }
+
+    const idempotencyKey = rawIdempotencyKey.trim();
+    if (idempotencyKey.length > 128) {
+      throw AppError.badRequest('Idempotency-Key header must not exceed 128 characters', [
+        { field: 'idempotency-key', issue: 'Length exceeds 128 characters' },
+      ]);
+    }
+
     const adminId = request.user?.userId;
     if (!adminId) {
       throw AppError.unauthorized('Authenticated administrator identity required');
     }
 
-    const result = await this.notificationService.resendNotification(id, adminId, request.ip);
+    const result = await this.notificationService.resendNotification(
+      id,
+      adminId,
+      idempotencyKey,
+      request.ip,
+    );
 
     return reply.status(200).send({
       success: true,
