@@ -57,6 +57,47 @@ const swaggerPluginAsync: FastifyPluginAsync<SwaggerOptions> = async (
             'Multi-criteria filter engine, keyword search, upcoming departures, and real-time seat availability',
         },
         {
+          name: 'Bookings',
+          description: 'Customer checkout, booking holds, roster, and cancellation requests',
+        },
+        {
+          name: 'Payments',
+          description: 'Payment intents, payment gateway orchestration, and status polling',
+        },
+        {
+          name: 'Documents',
+          description: 'Tax invoices and travel vouchers download service',
+        },
+        {
+          name: 'CMS',
+          description: 'Public storefront hero slider banners and static informational pages',
+        },
+        {
+          name: 'Admin — CMS',
+          description: 'Administrative management for hero slider banners and static CMS pages',
+        },
+        {
+          name: 'Admin — Audit',
+          description: 'Append-only audit trail log queries and security inspections',
+        },
+        {
+          name: 'Admin — Dashboard',
+          description: 'Administrative operational metrics and inventory utilization statistics',
+        },
+        {
+          name: 'Admin — Bookings',
+          description:
+            'Administrative booking management, search, filters, and ground manifest generation',
+        },
+        {
+          name: 'Admin — Departures',
+          description: 'Departure calendar scheduling and seat capacity management',
+        },
+        {
+          name: 'Admin — Cancellations',
+          description: 'Cancellation review queue and refund authorization workflows',
+        },
+        {
           name: 'System',
           description: 'Health check, readiness probes, and database/redis status',
         },

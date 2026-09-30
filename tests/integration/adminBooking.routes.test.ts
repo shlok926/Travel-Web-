@@ -176,6 +176,7 @@ describe('Phase 5 Step 7 — Admin Booking & Passenger Manifest APIs (Integratio
       await db.query(`DELETE FROM bookings;`);
       await db.query(`DELETE FROM inventory_holds;`);
       await db.query(`DELETE FROM departure_schedules WHERE departure_date >= '2028-01-01';`);
+      await db.query(`DELETE FROM admin_audit_logs;`);
       await db.query(`DELETE FROM users WHERE id IN ($1, $2);`, [adminId, customerId]);
       await db.close();
     }

@@ -28,14 +28,14 @@ export class AdminDashboardRepository {
         (SELECT COUNT(*)::int FROM tour_packages WHERE is_published = false) AS draft_packages,
         (SELECT COUNT(*)::int FROM destinations) AS total_destinations,
         (SELECT COUNT(*)::int FROM themes) AS total_themes,
-        (SELECT COUNT(*)::int FROM departures) AS total_departures,
-        (SELECT COUNT(*)::int FROM departures WHERE status = 'OPEN') AS open_departures,
-        (SELECT COUNT(*)::int FROM departures WHERE departure_date >= CURRENT_DATE AND status = 'OPEN') AS upcoming_departures,
+        (SELECT COUNT(*)::int FROM departure_schedules) AS total_departures,
+        (SELECT COUNT(*)::int FROM departure_schedules WHERE status = 'OPEN') AS open_departures,
+        (SELECT COUNT(*)::int FROM departure_schedules WHERE departure_date >= CURRENT_DATE AND status = 'OPEN') AS upcoming_departures,
         (SELECT COUNT(*)::int FROM bookings) AS total_bookings,
         (SELECT COUNT(*)::int FROM bookings WHERE status = 'CONFIRMED') AS confirmed_bookings,
         (SELECT COUNT(*)::int FROM bookings WHERE status = 'AWAITING_PAYMENT') AS awaiting_payment_bookings,
         (SELECT COUNT(*)::int FROM bookings WHERE status = 'CANCELLED') AS cancelled_bookings,
-        (SELECT COUNT(*)::int FROM cancellation_requests WHERE status = 'PENDING') AS pending_cancellations,
+        (SELECT COUNT(*)::int FROM cancellation_requests WHERE status = 'PENDING_APPROVAL') AS pending_cancellations,
         COALESCE(
           (
             SELECT CASE
@@ -43,7 +43,7 @@ export class AdminDashboardRepository {
                 ROUND((SUM(booked_seats)::numeric / SUM(total_seat_capacity)::numeric) * 100, 2)::float
               ELSE 0.0
             END
-            FROM departures
+            FROM departure_schedules
           ),
           0.0
         ) AS inventory_utilization_percent;
