@@ -1,6 +1,7 @@
 import { authStore, AuthStatus } from '../state/auth.js';
 import { AuthModal } from './authModal.js';
 import { MyBookingsModal } from './myBookingsModal.js';
+import { AdminConsole } from './admin/adminConsole.js';
 import { api } from '../api/client.js';
 
 /**
@@ -56,14 +57,27 @@ export class NavbarComponent {
       const firstName = (state.user.fullName || 'Traveller').split(' ')[0];
       // Escape HTML entities for safe greeting rendering
       const safeName = firstName.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const isAdmin = state.user.role === 'ADMIN';
 
       container.innerHTML = `
         <div class="nav-user-greeting">
           <span class="user-greeting-text" id="user-greeting-text">Hi, ${safeName}</span>
+          ${
+            isAdmin
+              ? `<button type="button" class="btn-primary btn-sm btn-nav-admin" id="nav-admin-console-btn" aria-label="Open Admin Console">⚡ Admin Console</button>`
+              : ''
+          }
           <button type="button" class="btn-secondary btn-sm btn-nav-bookings" id="nav-my-bookings-btn" aria-label="View your bookings">My Bookings</button>
           <button type="button" class="btn-logout" id="nav-logout-btn" aria-label="Sign out of your account">Logout</button>
         </div>
       `;
+
+      if (isAdmin) {
+        const adminBtn = container.querySelector('#nav-admin-console-btn');
+        if (adminBtn) {
+          adminBtn.addEventListener('click', () => AdminConsole.open());
+        }
+      }
 
       const bookingsBtn = container.querySelector('#nav-my-bookings-btn');
       if (bookingsBtn) {
