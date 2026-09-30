@@ -100,6 +100,26 @@ export class ApiClient {
     });
   }
 
+  async put(endpoint, body, options = {}) {
+    return this.request(endpoint, {
+      ...options,
+      method: 'PUT',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  async patch(endpoint, body, options = {}) {
+    return this.request(endpoint, {
+      ...options,
+      method: 'PATCH',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  async delete(endpoint, options = {}) {
+    return this.request(endpoint, { ...options, method: 'DELETE' });
+  }
+
   // --- Programmatic Authentication API ---
 
   async register(data) {
@@ -431,6 +451,285 @@ export class ApiClient {
   async downloadVoucher(bookingReference, options = {}) {
     if (!bookingReference) throw new Error('Booking reference is required');
     return this.get(`/documents/voucher/${encodeURIComponent(bookingReference)}/download`, options);
+  }
+
+  // ============================================================
+  // --- Phase 7 Admin & CMS APIs ---
+  // ============================================================
+
+  // 1. Admin Dashboard
+  async getAdminDashboardStats(options = {}) {
+    return this.get('/admin/dashboard/stats', options);
+  }
+
+  // 2. Hero Sliders (Public & Admin)
+  async getPublicHeroSliders(options = {}) {
+    return this.get('/cms/sliders', { skipAuth: true, ...options });
+  }
+
+  async getAdminHeroSliders(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.isActive !== undefined && params.isActive !== null && params.isActive !== '') {
+      query.set('isActive', String(params.isActive));
+    }
+    const qs = query.toString();
+    return this.get(`/admin/cms/sliders${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminHeroSliderById(id, options = {}) {
+    if (!id) throw new Error('Slider ID is required');
+    return this.get(`/admin/cms/sliders/${encodeURIComponent(id)}`, options);
+  }
+
+  async createAdminHeroSlider(data, options = {}) {
+    return this.post('/admin/cms/sliders', data, options);
+  }
+
+  async updateAdminHeroSlider(id, data, options = {}) {
+    if (!id) throw new Error('Slider ID is required');
+    return this.patch(`/admin/cms/sliders/${encodeURIComponent(id)}`, data, options);
+  }
+
+  async deleteAdminHeroSlider(id, options = {}) {
+    if (!id) throw new Error('Slider ID is required');
+    return this.delete(`/admin/cms/sliders/${encodeURIComponent(id)}`, options);
+  }
+
+  // 3. CMS Static Pages (Public & Admin)
+  async getPublicCmsPageBySlug(slug, options = {}) {
+    if (!slug) throw new Error('Page slug is required');
+    return this.get(`/cms/pages/${encodeURIComponent(slug)}`, { skipAuth: true, ...options });
+  }
+
+  async getAdminCmsPages(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (
+      params.isPublished !== undefined &&
+      params.isPublished !== null &&
+      params.isPublished !== ''
+    ) {
+      query.set('isPublished', String(params.isPublished));
+    }
+    const qs = query.toString();
+    return this.get(`/admin/cms/pages${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminCmsPageById(id, options = {}) {
+    if (!id) throw new Error('Page ID is required');
+    return this.get(`/admin/cms/pages/id/${encodeURIComponent(id)}`, options);
+  }
+
+  async getAdminCmsPageBySlug(slug, options = {}) {
+    if (!slug) throw new Error('Page slug is required');
+    return this.get(`/admin/cms/pages/${encodeURIComponent(slug)}`, options);
+  }
+
+  async createAdminCmsPage(data, options = {}) {
+    return this.post('/admin/cms/pages', data, options);
+  }
+
+  async updateAdminCmsPage(id, data, options = {}) {
+    if (!id) throw new Error('Page ID is required');
+    return this.patch(`/admin/cms/pages/${encodeURIComponent(id)}`, data, options);
+  }
+
+  async updateAdminCmsPageBySlug(slug, data, options = {}) {
+    if (!slug) throw new Error('Page slug is required');
+    return this.put(`/admin/cms/pages/${encodeURIComponent(slug)}`, data, options);
+  }
+
+  async deleteAdminCmsPage(id, options = {}) {
+    if (!id) throw new Error('Page ID is required');
+    return this.delete(`/admin/cms/pages/${encodeURIComponent(id)}`, options);
+  }
+
+  // 4. Admin Packages & Catalogue
+  async getAdminPackages(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.destinationSlug) query.set('destinationSlug', String(params.destinationSlug));
+    if (params.themeSlug) query.set('themeSlug', String(params.themeSlug));
+    if (
+      params.isPublished !== undefined &&
+      params.isPublished !== null &&
+      params.isPublished !== ''
+    ) {
+      query.set('isPublished', String(params.isPublished));
+    }
+    if (params.isFeatured !== undefined && params.isFeatured !== null && params.isFeatured !== '') {
+      query.set('isFeatured', String(params.isFeatured));
+    }
+    const qs = query.toString();
+    return this.get(`/admin/packages${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminPackageById(id, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.get(`/admin/packages/${encodeURIComponent(id)}`, options);
+  }
+
+  async createAdminPackage(data, options = {}) {
+    return this.post('/admin/packages', data, options);
+  }
+
+  async updateAdminPackage(id, data, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.patch(`/admin/packages/${encodeURIComponent(id)}`, data, options);
+  }
+
+  async deleteAdminPackage(id, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.delete(`/admin/packages/${encodeURIComponent(id)}`, options);
+  }
+
+  async publishAdminPackage(id, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.post(`/admin/packages/${encodeURIComponent(id)}/publish`, undefined, options);
+  }
+
+  async unpublishAdminPackage(id, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.post(`/admin/packages/${encodeURIComponent(id)}/unpublish`, undefined, options);
+  }
+
+  async setAdminPackageItinerary(id, data, options = {}) {
+    if (!id) throw new Error('Package ID is required');
+    return this.put(`/admin/packages/${encodeURIComponent(id)}/itinerary`, data, options);
+  }
+
+  async getAdminDestinations(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return this.get(`/admin/destinations${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminThemes(options = {}) {
+    return this.get('/admin/themes', options);
+  }
+
+  // 5. Admin Departures & Schedules
+  async getAdminPackageDepartures(packageId, options = {}) {
+    if (!packageId) throw new Error('Package ID is required');
+    return this.get(`/admin/packages/${encodeURIComponent(packageId)}/departures`, options);
+  }
+
+  async createAdminDeparture(packageId, data, options = {}) {
+    if (!packageId) throw new Error('Package ID is required');
+    return this.post(`/admin/packages/${encodeURIComponent(packageId)}/departures`, data, options);
+  }
+
+  async getAdminDepartureById(id, options = {}) {
+    if (!id) throw new Error('Departure ID is required');
+    return this.get(`/admin/departures/${encodeURIComponent(id)}`, options);
+  }
+
+  async updateAdminDeparture(id, data, options = {}) {
+    if (!id) throw new Error('Departure ID is required');
+    return this.patch(`/admin/departures/${encodeURIComponent(id)}`, data, options);
+  }
+
+  async deleteAdminDeparture(id, options = {}) {
+    if (!id) throw new Error('Departure ID is required');
+    return this.delete(`/admin/departures/${encodeURIComponent(id)}`, options);
+  }
+
+  // 6. Admin Bookings & Manifest
+  async getAdminBookings(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.status) query.set('status', String(params.status));
+    if (params.departureId) query.set('departureId', String(params.departureId));
+    if (params.customerId) query.set('customerId', String(params.customerId));
+    if (params.search) query.set('search', String(params.search));
+    const qs = query.toString();
+    return this.get(`/admin/bookings${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminBookingByReference(reference, options = {}) {
+    if (!reference) throw new Error('Booking reference is required');
+    return this.get(`/admin/bookings/${encodeURIComponent(reference)}`, options);
+  }
+
+  async getAdminDepartureManifest(departureId, options = {}) {
+    if (!departureId) throw new Error('Departure ID is required');
+    return this.get(`/admin/departures/${encodeURIComponent(departureId)}/manifest`, options);
+  }
+
+  // 7. Admin Cancellation Queue & Operations
+  async getAdminCancellations(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.status) query.set('status', String(params.status));
+    const qs = query.toString();
+    return this.get(`/admin/cancellations${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async authorizeAdminCancellation(cancellationId, data = {}, options = {}) {
+    if (!cancellationId) throw new Error('Cancellation ID is required');
+    return this.post(
+      `/admin/cancellations/${encodeURIComponent(cancellationId)}/authorize`,
+      data,
+      options,
+    );
+  }
+
+  async rejectAdminCancellation(cancellationId, data = {}, options = {}) {
+    if (!cancellationId) throw new Error('Cancellation ID is required');
+    return this.post(
+      `/admin/cancellations/${encodeURIComponent(cancellationId)}/reject`,
+      data,
+      options,
+    );
+  }
+
+  // 8. Admin Audit Logs
+  async getAdminAuditLogs(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.adminId) query.set('adminId', String(params.adminId));
+    if (params.action) query.set('action', String(params.action));
+    if (params.entityType) query.set('entityType', String(params.entityType));
+    if (params.entityId) query.set('entityId', String(params.entityId));
+    if (params.dateFrom) query.set('dateFrom', String(params.dateFrom));
+    if (params.dateTo) query.set('dateTo', String(params.dateTo));
+    const qs = query.toString();
+    return this.get(`/admin/audit-logs${qs ? `?${qs}` : ''}`, {
+      includeMeta: true,
+      ...options,
+    });
+  }
+
+  async getAdminAuditLogById(id, options = {}) {
+    if (!id) throw new Error('Audit log ID is required');
+    return this.get(`/admin/audit-logs/${encodeURIComponent(id)}`, options);
   }
 }
 
