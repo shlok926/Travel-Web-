@@ -2,6 +2,7 @@ import {
   MoneyUtil,
   SupportedCurrency,
   stablePortalUrlSchema,
+  notificationSubjectSchema,
 } from '../../../../../shared/src/index.js';
 
 // ============================================================
@@ -65,9 +66,15 @@ export function formatMoney(
 }
 
 /**
- * Sanitizes notification subject by stripping any CRLF injection attempts.
+ * Validates notification subject against Phase 8 Step 2 notificationSubjectSchema.
+ * Strictly rejects any subject containing CRLF or newline characters instead of silently repairing it.
  */
 export function sanitizeSubject(subject: string): string {
-  if (!subject) return '';
-  return subject.replace(/[\r\n]+/g, ' ').trim();
+  const parseResult = notificationSubjectSchema.safeParse(subject);
+  if (!parseResult.success) {
+    throw new Error(
+      `Invalid notification subject: ${parseResult.error.errors[0]?.message ?? 'Subject validation failed'}`,
+    );
+  }
+  return parseResult.data;
 }

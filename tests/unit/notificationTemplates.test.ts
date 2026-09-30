@@ -392,20 +392,28 @@ describe('Phase 8 Step 4 — Notification Template Engine (Unit & Security)', ()
   describe('8. CRLF & Subject Security Test Matrix', () => {
     const template = new BookingConfirmedTemplate();
 
-    it('should strip CRLF from dynamic references in subject', () => {
-      const result = template.render({
-        type: 'BOOKING_CONFIRMED',
-        bookingReference: 'YTT-1001\r\nBcc: evil@attacker.com',
-        customerName: 'John Doe',
-        recipientEmail: 'u@e.com',
-        portalUrl: '/bookings/1001',
-      });
+    it('should strictly reject CRLF injection attempts in subject generation without silent repair', () => {
+      expect(() =>
+        template.render({
+          type: 'BOOKING_CONFIRMED',
+          bookingReference: 'YTT-1001\r\nBcc: evil@attacker.com',
+          customerName: 'John Doe',
+          recipientEmail: 'u@e.com',
+          portalUrl: '/bookings/1001',
+        }),
+      ).toThrow(/CRLF or newline/i);
+    });
 
-      expect(result.subject).not.toContain('\r');
-      expect(result.subject).not.toContain('\n');
-      expect(result.subject).toBe(
-        'Booking Confirmed — YTT-1001 Bcc: evil@attacker.com | Young Tours & Travels',
-      );
+    it('should strictly reject standalone newline injection attempts in subject generation', () => {
+      expect(() =>
+        template.render({
+          type: 'BOOKING_CONFIRMED',
+          bookingReference: 'YTT-1001\nSubject: Injected',
+          customerName: 'John Doe',
+          recipientEmail: 'u@e.com',
+          portalUrl: '/bookings/1001',
+        }),
+      ).toThrow(/CRLF or newline/i);
     });
   });
 });
