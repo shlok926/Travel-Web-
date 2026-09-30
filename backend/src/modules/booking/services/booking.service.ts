@@ -36,6 +36,7 @@ import {
   PaymentTransactionRepository,
 } from '../../payment/repositories/paymentTransaction.repository.js';
 import { assertBookingTransition } from '../domain/bookingStateMachine.js';
+import { NotificationProducerService } from '../../notification/services/notificationProducer.service.js';
 
 // ============================================================
 // Command & Result Interfaces
@@ -97,6 +98,7 @@ export class BookingService {
     private readonly destinationRepo: DestinationRepository,
     private readonly paymentTxRepo?: PaymentTransactionRepository,
     private readonly onBookingConfirmed?: (bookingId: string) => Promise<void> | void,
+    private readonly notificationProducer?: NotificationProducerService,
   ) {}
 
   /**
@@ -615,7 +617,27 @@ export class BookingService {
       try {
         await this.onBookingConfirmed(confirmedBooking.id);
       } catch {
-        // Enqueue/notification errors do not roll back the committed booking in PostgreSQL
+        // Post-confirmation hook errors do not roll back the committed booking in PostgreSQL
+      }
+    }
+
+    // Asynchronous Transactional Notification (Phase 8 Step 6)
+    if (this.notificationProducer && confirmedBooking.primaryContact?.email) {
+      try {
+        await this.notificationProducer.enqueueBookingConfirmed({
+          type: 'BOOKING_CONFIRMED',
+          bookingReference: confirmedBooking.bookingReference,
+          customerName: confirmedBooking.primaryContact.name || 'Valued Traveler',
+          recipientEmail: confirmedBooking.primaryContact.email,
+          recipientPhone: confirmedBooking.primaryContact.phone,
+          portalUrl: `/portal/bookings/${confirmedBooking.bookingReference}`,
+          packageTitle: confirmedBooking.packageSnapshot?.title,
+          departureDate: confirmedBooking.departureSnapshot?.departureDate,
+          totalAmount: confirmedBooking.totalPrice,
+          currency: confirmedBooking.currency as 'INR' | 'USD',
+        });
+      } catch {
+        // Notification enqueue failure must never rollback or fail booking confirmation
       }
     }
 
@@ -631,7 +653,7 @@ export class BookingService {
    * - If `AWAITING_PAYMENT`, `EXPIRED`, or already `CANCELLED`: rejected with appropriate domain error.
    */
   async cancelBooking(command: CancelBookingCommand): Promise<BookingEntity> {
-    return this.db.withTransaction(async (client: pg.PoolClient) => {
+    const cancelledBooking = await this.db.withTransaction(async (client: pg.PoolClient) => {
       let booking: BookingEntity | null;
 
       if (command.customerId) {
@@ -712,6 +734,23 @@ export class BookingService {
 
       return cancelledBooking;
     });
+
+    // Asynchronous Transactional Notification (Phase 8 Step 6)
+    if (this.notificationProducer && cancelledBooking.primaryContact?.email) {
+      try {
+        await this.notificationProducer.enqueueBookingCancelled({
+          type: 'BOOKING_CANCELLED',
+          bookingReference: cancelledBooking.bookingReference,
+          recipientEmail: cancelledBooking.primaryContact.email,
+          recipientPhone: cancelledBooking.primaryContact.phone,
+          cancellationReason: cancelledBooking.cancellationReason || 'Booking cancelled',
+        });
+      } catch {
+        // Notification enqueue failure must never rollback or fail cancellation
+      }
+    }
+
+    return cancelledBooking;
   }
 
   /**

@@ -17,6 +17,7 @@ import {
   DocumentDownloadResponse,
   TokenPayload,
 } from '../../../../../shared/src/index.js';
+import { NotificationProducerService } from '../../notification/services/notificationProducer.service.js';
 
 export interface GeneratedDocumentsResult {
   invoice: TaxInvoiceEntity;
@@ -33,6 +34,7 @@ export class DocumentService {
     private readonly storageService: IStorageService,
     private readonly pdfGenerator: PdfGeneratorService,
     private readonly privateBucket: string = 'travel-documents-private',
+    private readonly notificationProducer?: NotificationProducerService,
   ) {}
 
   /**
@@ -40,15 +42,37 @@ export class DocumentService {
    * Fully idempotent: returns existing documents if already generated.
    */
   async generateBookingDocuments(bookingId: string): Promise<GeneratedDocumentsResult> {
-    const invoice = await this.generateInvoice(bookingId);
-    const voucher = await this.generateVoucher(bookingId);
+    const invoice = await this.generateInvoice(bookingId, { skipNotification: true });
+    const voucher = await this.generateVoucher(bookingId, { skipNotification: true });
+
+    if (this.notificationProducer) {
+      const booking = await this.bookingRepo.findById(bookingId);
+      if (booking?.primaryContact?.email) {
+        try {
+          await this.notificationProducer.enqueueDocumentReady({
+            type: 'DOCUMENT_READY',
+            bookingReference: booking.bookingReference,
+            recipientEmail: booking.primaryContact.email,
+            recipientPhone: booking.primaryContact.phone,
+            documentType: 'ALL',
+            portalDocumentUrl: `/portal/bookings/${booking.bookingReference}/documents`,
+          });
+        } catch {
+          // Notification enqueue failure must never rollback or fail document generation
+        }
+      }
+    }
+
     return { invoice, voucher };
   }
 
   /**
    * Generates or retrieves statutory GST Tax Invoice for a confirmed & paid booking.
    */
-  async generateInvoice(bookingId: string): Promise<TaxInvoiceEntity> {
+  async generateInvoice(
+    bookingId: string,
+    options?: { skipNotification?: boolean },
+  ): Promise<TaxInvoiceEntity> {
     // 1. Check idempotency: Return existing completed invoice if already persisted with PDF key
     const existingInvoices = await this.taxInvoiceRepo.findByBookingId(bookingId);
     const existingCompleted = existingInvoices.find((inv) => inv.pdfStorageKey !== null);
@@ -139,13 +163,32 @@ export class DocumentService {
       pdfStorageKey: storageKey,
     });
 
+    // Asynchronous Transactional Notification (Phase 8 Step 6)
+    if (this.notificationProducer && !options?.skipNotification && booking.primaryContact?.email) {
+      try {
+        await this.notificationProducer.enqueueDocumentReady({
+          type: 'DOCUMENT_READY',
+          bookingReference: booking.bookingReference,
+          recipientEmail: booking.primaryContact.email,
+          recipientPhone: booking.primaryContact.phone,
+          documentType: 'INVOICE',
+          portalDocumentUrl: `/portal/bookings/${booking.bookingReference}/documents?type=INVOICE`,
+        });
+      } catch {
+        // Notification enqueue failure must never rollback or fail document generation
+      }
+    }
+
     return invoice;
   }
 
   /**
    * Generates or retrieves E-Ticket Voucher for a confirmed & paid booking.
    */
-  async generateVoucher(bookingId: string): Promise<TicketVoucherEntity> {
+  async generateVoucher(
+    bookingId: string,
+    options?: { skipNotification?: boolean },
+  ): Promise<TicketVoucherEntity> {
     // 1. Check idempotency: Return existing completed voucher if already persisted with PDF key
     const existingVouchers = await this.ticketVoucherRepo.findByBookingId(bookingId);
     const existingCompleted = existingVouchers.find((vch) => vch.pdfStorageKey !== null);
@@ -232,6 +275,22 @@ export class DocumentService {
       bookingId: booking.id,
       pdfStorageKey: storageKey,
     });
+
+    // Asynchronous Transactional Notification (Phase 8 Step 6)
+    if (this.notificationProducer && !options?.skipNotification && booking.primaryContact?.email) {
+      try {
+        await this.notificationProducer.enqueueDocumentReady({
+          type: 'DOCUMENT_READY',
+          bookingReference: booking.bookingReference,
+          recipientEmail: booking.primaryContact.email,
+          recipientPhone: booking.primaryContact.phone,
+          documentType: 'VOUCHER',
+          portalDocumentUrl: `/portal/bookings/${booking.bookingReference}/documents?type=VOUCHER`,
+        });
+      } catch {
+        // Notification enqueue failure must never rollback or fail document generation
+      }
+    }
 
     return voucher;
   }

@@ -3,7 +3,8 @@ import { loadWorkerEnv } from './config/workerEnv.js';
 import { createSmokeWorker } from './queues/smokeQueue.js';
 import { createHoldExpiryWorker } from './queues/holdExpiryQueue.js';
 import { createDocumentWorker } from './queues/documentQueue.js';
-import { createNotificationWorker } from './queues/notificationQueue.js';
+import { createNotificationWorker, createNotificationQueue } from './queues/notificationQueue.js';
+import { NotificationProducerService } from '../../backend/src/modules/notification/services/notificationProducer.service.js';
 import { DatabaseService } from '../../backend/src/infrastructure/database/index.js';
 import { StorageFactory } from '../../backend/src/infrastructure/storage/index.js';
 import { BookingRepository } from '../../backend/src/modules/booking/repositories/booking.repository.js';
@@ -59,6 +60,10 @@ async function startWorker(): Promise<void> {
   const taxInvoiceRepo = new TaxInvoiceRepository(db);
   const ticketVoucherRepo = new TicketVoucherRepository(db);
 
+  // Initialize Notification Producer (Phase 8 Step 5 & 6)
+  const notificationQueue = createNotificationQueue(config);
+  const notificationProducer = new NotificationProducerService(notificationQueue);
+
   // Initialize Services
   const bookingService = new BookingService(
     db,
@@ -70,6 +75,9 @@ async function startWorker(): Promise<void> {
     tourPackageRepo,
     itineraryRepo,
     destinationRepo,
+    paymentRepo,
+    undefined,
+    notificationProducer,
   );
 
   const pdfGenerator = new PdfGeneratorService();
@@ -82,6 +90,7 @@ async function startWorker(): Promise<void> {
     storageService,
     pdfGenerator,
     envConfig.S3_BUCKET_PRIVATE,
+    notificationProducer,
   );
 
   // 1. Smoke Worker
@@ -204,6 +213,7 @@ async function startWorker(): Promise<void> {
         holdExpiryWorker.close(),
         documentWorker.close(),
         notificationWorker.close(),
+        notificationQueue.close(),
         pdfGenerator.close(),
       ]);
       await db.close();

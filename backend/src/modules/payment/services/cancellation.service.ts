@@ -20,6 +20,7 @@ import {
 } from '../repositories/paymentTransaction.repository.js';
 import { PaymentGatewayFactory } from '../adapters/paymentGateway.factory.js';
 import { CancellationPolicyEvaluator } from './cancellationPolicy.js';
+import { NotificationProducerService } from '../../notification/services/notificationProducer.service.js';
 
 // ============================================================
 // Command Interfaces
@@ -71,6 +72,7 @@ export class CancellationService {
     private readonly paymentTxRepo: PaymentTransactionRepository,
     private readonly gatewayFactory: PaymentGatewayFactory,
     private readonly policyEvaluator: CancellationPolicyEvaluator = new CancellationPolicyEvaluator(),
+    private readonly notificationProducer?: NotificationProducerService,
   ) {}
 
   /**
@@ -474,7 +476,7 @@ export class CancellationService {
     }
 
     // 6. Single Atomic PostgreSQL Transaction for State Transitions
-    return this.db.withTransaction(async (client: pg.PoolClient) => {
+    const result = await this.db.withTransaction(async (client: pg.PoolClient) => {
       // 6.1 Canonical Lock Ordering: departure_schedules -> bookings -> payment_transactions
       const departure = await this.departureRepo.findByIdForUpdate(booking.departureId, client);
       if (!departure) {
@@ -603,5 +605,45 @@ export class CancellationService {
         payment: successTx,
       };
     });
+
+    // Asynchronous Transactional Notifications (Phase 8 Step 6)
+    // Only definitive SETTLED refund & CANCELLED booking produce notifications
+    if (
+      settlementStatus === 'SETTLED' &&
+      this.notificationProducer &&
+      result.booking.primaryContact?.email
+    ) {
+      // 1. Enqueue REFUND_SETTLED
+      try {
+        await this.notificationProducer.enqueueRefundSettled({
+          type: 'REFUND_SETTLED',
+          cancellationRequestId: result.cancellation.id,
+          bookingReference: result.booking.bookingReference,
+          recipientEmail: result.booking.primaryContact.email,
+          recipientPhone: result.booking.primaryContact.phone,
+          refundAmount: result.settlement.refundAmount,
+          currency: result.settlement.currency as 'INR' | 'USD',
+          cancellationReason: result.cancellation.cancellationReason ?? undefined,
+        });
+      } catch {
+        // Notification failure never rolls back the committed refund in PostgreSQL
+      }
+
+      // 2. Enqueue BOOKING_CANCELLED
+      try {
+        await this.notificationProducer.enqueueBookingCancelled({
+          type: 'BOOKING_CANCELLED',
+          bookingReference: result.booking.bookingReference,
+          recipientEmail: result.booking.primaryContact.email,
+          recipientPhone: result.booking.primaryContact.phone,
+          cancellationReason:
+            result.cancellation.cancellationReason || 'Admin authorized cancellation',
+        });
+      } catch {
+        // Notification failure never rolls back the committed cancellation in PostgreSQL
+      }
+    }
+
+    return result;
   }
 }
